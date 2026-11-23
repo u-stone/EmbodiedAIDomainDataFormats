@@ -1,0 +1,112 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1. Debug: LeRobot v3.0 Deep Study (lerobot-deep)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["lerobot-deep", "-n", "30"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "2. Debug: Deep 3-Layer Anatomy (Pick Format)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["anatomy", "${input:datasetFormat}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "3. Debug: Read Step & Action-Chunk Window (Pick Format)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": [
+        "sample",
+        "${input:datasetFormat}",
+        "--ep",
+        "0",
+        "--step",
+        "10",
+        "--window"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "4. Debug: HF Hub Cache Anatomy (hf-cache)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["hf-cache"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "5. Debug: 5-Format Benchmark Compare",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["compare", "-n", "20"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "6. Debug: Pytest (All Tests)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "-s"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
+      "name": "7. Debug: Current Python File (Step into Libs)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "datasetFormat",
+      "type": "pickString",
+      "description": "Select Embodied AI dataset format to debug",
+      "options": ["lerobot_v3", "zarr", "hdf5", "rlds", "mcap"],
+      "default": "lerobot_v3"
+    }
+  ]
+}
