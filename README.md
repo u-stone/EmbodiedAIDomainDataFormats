@@ -43,6 +43,9 @@ uv run edlab anatomy mcap
 
 # 7. 解剖本机 ~/.cache/huggingface/hub/ 类 Git 内容寻址缓存与符号链接/硬链接关系
 uv run edlab hf-cache
+
+# 8. LeRobot v3.0 五大子系统深度剖析（不变式审计 / Parquet RowGroup / MP4 stbl 字节寻址 / Seek 压测 / delta_timestamps）
+uv run edlab lerobot-deep -n 100
 ```
 
 > 任何命令均支持 `--path <你的真实数据集路径>` 直接解剖你本地已有的真机 MCAP、ALOHA HDF5、Diffusion Policy Zarr、Bridge RLDS 或 LeRobot v3.0 数据集。

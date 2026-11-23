@@ -78,3 +78,10 @@ def test_lerobot_v3_real_if_present() -> None:
         pytest.skip("Real lerobot/pusht sample not downloaded yet (run `uv run edlab setup-samples`)")
     with LeRobotV3FormatReader(real_path) as r:
         _assert_reader_contract(r)
+
+    from embodied_formats.lerobot_v3_deep import run_full_lerobot_v3_deep_study
+
+    deep = run_full_lerobot_v3_deep_study(real_path, num_seek_queries=10)
+    assert deep["integrity_audit"]["global_row_contiguity_ok"] is True
+    assert deep["parquet_internals"]["num_row_groups"] >= 1
+    assert len(deep["mp4_seek_profiles"]) >= 1

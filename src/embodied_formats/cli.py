@@ -14,6 +14,7 @@ from embodied_formats.anatomy import deep_analyze, inspect_hf_hub_cache
 from embodied_formats.benchmark import benchmark_reader
 from embodied_formats.common import BaseFormatReader, format_bytes
 from embodied_formats.formats import FORMAT_REGISTRY
+from embodied_formats.lerobot_v3_deep import run_full_lerobot_v3_deep_study
 from embodied_formats.real_samples import (
     fetch_real_hdf5,
     fetch_real_lerobot_v3,
@@ -277,6 +278,39 @@ def cmd_hf_cache(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_lerobot_deep(args: argparse.Namespace) -> None:
+    target = Path(args.path) if args.path else real_sample_paths(Path(args.real_root))["lerobot_v3"]
+    res = run_full_lerobot_v3_deep_study(target, num_seek_queries=args.n)
+    console.print(
+        Panel(
+            json.dumps(res["integrity_audit"], indent=2, ensure_ascii=False),
+            title="1. Control-Plane & Mathematical Invariants Audit (Row / Video CFR / Chan-Welford)",
+            border_style="cyan",
+        )
+    )
+    console.print(
+        Panel(
+            json.dumps(res["parquet_internals"], indent=2, ensure_ascii=False),
+            title="2. Parquet RowGroup, Page Offsets & Predicate Pushdown Statistics",
+            border_style="blue",
+        )
+    )
+    console.print(
+        Panel(
+            json.dumps(res["mp4_seek_profiles"], indent=2, ensure_ascii=False),
+            title="3. Raw MP4 `stbl` Byte-Offset Resolution & PyAV Seek Decode Profiler",
+            border_style="magenta",
+        )
+    )
+    console.print(
+        Panel(
+            json.dumps(res["delta_timestamps_simulation"], indent=2, ensure_ascii=False),
+            title="4. `delta_timestamps` Query & `*_is_pad` Boundary Mask Trace",
+            border_style="green",
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="edlab",
@@ -289,6 +323,11 @@ def main() -> None:
     p_hf = sub.add_parser("hf-cache", help="Inspect ~/.cache/huggingface/hub Git-like refs/blobs/snapshots & symlinks")
     p_hf.add_argument("--filter", default="datasets--", help="Substring filter for repo cache dirs")
     p_hf.set_defaults(func=cmd_hf_cache)
+
+    p_lr = sub.add_parser("lerobot-deep", help="Ultra-deep 5-subsystem study of a LeRobot v3.0 dataset")
+    p_lr.add_argument("--path", default=None, help="Path to LeRobot v3.0 dataset (default: real lerobot/pusht)")
+    p_lr.add_argument("-n", type=int, default=50, help="Number of random video seek queries to profile")
+    p_lr.set_defaults(func=cmd_lerobot_deep)
 
     p_fetch = sub.add_parser("fetch-real", help="Download genuine open-source datasets for all 5 formats")
     p_fetch.add_argument("--force", action="store_true")
