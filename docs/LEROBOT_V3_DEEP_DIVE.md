@@ -119,3 +119,55 @@ VLA / ACT / Diffusion Policy 训练时通常一次读取“过去 `obs_horizon` 
   - 全局行号：`[276, 277, 278, 278, 278, 278, 278, 278]`
   - 掩码 `action_is_pad`：`[False, False, False, True, True, True, True, True]`
 - **训练意义**：DataLoader 必须把 `action_is_pad` 一并送入 GPU，计算 Loss 时用 `~action_is_pad` 屏蔽越界填充步，防止策略在轨迹末尾学出错误的“原地重复动作”偏差。
+
+---
+
+## 6. 高清双摄真机实战：`lerobot/svla_so100_pickplace`（双 640×480 30FPS AV1 + RTX 5080 实测）
+
+为验证真实机械臂高清多视角场景下的 LeRobot v3.0 底层特征与 I/O 瓶颈，我们对真实 SO-100 机械臂数据集 `lerobot/svla_so100_pickplace`（50 条轨迹、19,631 帧、30 FPS、双路 640×480 相机 `top` 305.54 MB + `wrist` 142.25 MB）执行了全套二进制解剖与性能压测（运行 `uv run edlab lerobot-hd -n 80` 复现）。
+
+### 6.1 双摄二进制结构与 `pusht` 的关键差异
+
+- **Parquet RowGroup 策略差异**：`svla_so100_pickplace` 由 `parquet-cpp-arrow 24.0.0` 写入，19,631 行打包为 **1 个 642 KB 的单 RowGroup**（对比 `pusht` 的 26 个 1,000 行 RowGroup）；说明不同版本/写入配置下 RowGroup 粒度并不固定。
+- **双路视频严丝合缝的 CFR 与帧间压缩**：
+  - `top` 与 `wrist` 均为 **19,631 帧**、**9,829 个 Keyframe**（`avg_gop = 1.997`）、`max_cfr_duration_drift_ms = 0.0003 ms`，均未开启 `faststart`（`moov` 位于 305 MB / 142 MB 尾部）。
+  - 观察真实帧 `164 (I 帧)` 与 `165 (P 帧)` 的字节大小：
+    - `top`：`I 帧 = 29,984 B` → `P 帧 = 542 B`（帧间压缩 **55x**）
+    - `wrist`：`I 帧 = 16,672 B` → `P 帧 = 31 B`（帧间压缩 **538x**）
+
+### 6.2 单步双摄随机采样延迟精确拆解（50 次随机采样均值）
+
+| 环节 | 平均耗时 | P99 耗时 | 占单步总耗时比例 |
+| --- | ---: | ---: | ---: |
+| **Parquet 读取 `state` + `action`** | `0.151 ms` | — | **`3.38%`** |
+| **`observation.images.top` (305.5 MB) Seek+解码** | `2.588 ms` | `3.174 ms` | **`57.95%`** |
+| **`observation.images.wrist` (142.3 MB) Seek+解码** | `1.705 ms` | `3.207 ms` | **`38.18%`** |
+| **双摄单步总计** | **`4.465 ms`** | **`5.927 ms`** | `100%` |
+
+> **核心结论**：在高清双摄 LeRobot v3.0 训练中，**96.1% 的 DataLoader 耗时都在视频 Seek + 解码**；Parquet 查表几乎为零开销（3.4%）。
+
+### 6.3 反直觉的系统实测：CPU (`libdav1d`) vs RTX 5080 NVDEC (`av1_cuvid`)
+
+在 **NVIDIA GeForce RTX 5080 (16 GB)** 上实测 PyAV `libdav1d`（CPU 软解）与 `av1_cuvid`（NVDEC 硬解）：
+
+| 相机 (640×480 AV1, GOP=2) | 解码器 | 顺序解码 FPS | 顺序 RGB 带宽 | 随机 Seek FPS | 随机 Seek P50 | 随机 Seek P99 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `observation.images.top` | **CPU (`libdav1d`)** | **2,173.4** | **1,910.3 MB/s** | **403.6** | **2.40 ms** | **3.25 ms** |
+| `observation.images.top` | GPU (`av1_cuvid` via PyAV) | 1,225.3 | 1,076.9 MB/s | 39.3 | 23.47 ms | 74.88 ms |
+| `observation.images.wrist` | **CPU (`libdav1d`)** | **2,116.1** | **1,859.8 MB/s** | **590.1** | **1.57 ms** | **3.62 ms** |
+| `observation.images.wrist` | GPU (`av1_cuvid` via PyAV) | 1,258.5 | 1,106.1 MB/s | 38.1 | 24.55 ms | 46.22 ms |
+
+**为什么 RTX 5080 NVDEC 在随机 Seek 下反而比 CPU 慢 10–15 倍？**
+1. **硬件解码管线 Flush 代价极高**：每次随机 Seek 调用 `ctx.flush_buffers()` 都会排空 CUVID 硬件深流水线并重新同步初始化，单次延迟高达 ~23 ms；
+2. **PCIe D2H 拷贝 + CPU 色彩转换**：PyAV 的 `av1_cuvid` 解码后需从显存拷回 Host 内存再经 CPU `swscale` 转 `NV12 → RGB24`（真正发挥 NVDEC 威力需要 **TorchCodec CUDA / NVIDIA DALI** 保持帧在 VRAM 内零拷贝直接转 RGB 喂给模型，且更适合高分辨率 1080p/4K 或长连续滑窗）；
+3. **640×480 + `GOP=2` 恰好命中 `libdav1d` 甜点区**：单帧仅几十 KB、每次 Seek 仅解 `1.61` 帧，AVX 汇编软解完全吃满 CPU Cache，无任何硬件上下文同步开销。
+
+### 6.4 多进程 DataLoader 扩展性实测（双摄 `obs=1, action_chunk=16`）
+
+| Worker 进程数 | 稳态吞吐 (samples/s) | 有效 RGB 张量带宽 | 说明 |
+| ---: | ---: | ---: | --- |
+| `1` | `198.13` | `348.28 MB/s` | 单核即可跑满 ~200 双摄样本/秒 |
+| `2` | `316.56` | `556.45 MB/s` | 1.60x 加速 |
+| `4` | `456.89` | `803.14 MB/s` | 2.31x 加速 |
+| **`8`** | **`560.17`** | **`984.67 MB/s`** | **接近 1 GB/s 有效 RGB 带宽，足以喂饱单卡 RTX 5080 的 VLA/ACT/DP 训练** |
+

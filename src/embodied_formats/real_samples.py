@@ -31,11 +31,26 @@ def _download_url(url: str, dst: Path) -> Path:
 def real_sample_paths(real_root: Path) -> dict[str, Path]:
     return {
         "lerobot_v3": real_root / "lerobot_v3_pusht",
+        "lerobot_v3_so100": real_root / "lerobot_v3_so100_pickplace",
         "zarr": real_root / "zarr_pusht" / "pusht_cchi_v7_replay.zarr",
         "hdf5": real_root / "hdf5_robomimic",
         "rlds": real_root / "rlds_berkeley_cable_routing",
         "mcap": real_root / "mcap_robotis_button_push",
     }
+
+
+def fetch_real_lerobot_v3_so100(dst: Path, force: bool = False) -> Path:
+    """Download real dual-camera 480x640 30fps SO-100 robot arm dataset (`lerobot/svla_so100_pickplace`, ~448 MB)."""
+    if (dst / "meta" / "info.json").exists() and not force:
+        return dst
+    dst.mkdir(parents=True, exist_ok=True)
+    snapshot_download(
+        repo_id="lerobot/svla_so100_pickplace",
+        repo_type="dataset",
+        local_dir=str(dst),
+        allow_patterns=["meta/*", "meta/**/*", "data/**/*", "videos/**/*", "README.md"],
+    )
+    return dst
 
 
 def fetch_real_lerobot_v3(dst: Path, force: bool = False) -> Path:

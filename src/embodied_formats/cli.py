@@ -15,9 +15,11 @@ from embodied_formats.benchmark import benchmark_reader
 from embodied_formats.common import BaseFormatReader, format_bytes
 from embodied_formats.formats import FORMAT_REGISTRY
 from embodied_formats.lerobot_v3_deep import run_full_lerobot_v3_deep_study
+from embodied_formats.lerobot_v3_hd_bench import run_hd_dual_cam_lab
 from embodied_formats.real_samples import (
     fetch_real_hdf5,
     fetch_real_lerobot_v3,
+    fetch_real_lerobot_v3_so100,
     fetch_real_mcap,
     fetch_real_rlds,
     fetch_real_zarr,
@@ -311,6 +313,35 @@ def cmd_lerobot_deep(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_lerobot_hd(args: argparse.Namespace) -> None:
+    target = Path(args.path) if args.path else real_sample_paths(Path(args.real_root))["lerobot_v3_so100"]
+    if not (target / "meta" / "info.json").exists():
+        console.print(f"[yellow]Dataset not found at {target}, downloading lerobot/svla_so100_pickplace (~448 MB)...[/yellow]")
+        fetch_real_lerobot_v3_so100(target)
+    res = run_hd_dual_cam_lab(target, num_queries=args.n)
+    console.print(
+        Panel(
+            json.dumps(res["cpu_vs_nvdec"], indent=2, ensure_ascii=False),
+            title="1. CPU Soft Decode vs NVIDIA RTX NVDEC (CUVID) Hardware Decode",
+            border_style="cyan",
+        )
+    )
+    console.print(
+        Panel(
+            json.dumps(res["step_latency_breakdown"], indent=2, ensure_ascii=False),
+            title="2. Dual-Camera Single-Step Latency Breakdown (Parquet vs Top Cam vs Wrist Cam)",
+            border_style="magenta",
+        )
+    )
+    console.print(
+        Panel(
+            json.dumps(res["multi_worker_scaling_obs1_act16"], indent=2, ensure_ascii=False),
+            title="3. Multi-Process DataLoader Scaling (obs=1, action_chunk=16)",
+            border_style="green",
+        )
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="edlab",
@@ -328,6 +359,11 @@ def main() -> None:
     p_lr.add_argument("--path", default=None, help="Path to LeRobot v3.0 dataset (default: real lerobot/pusht)")
     p_lr.add_argument("-n", type=int, default=50, help="Number of random video seek queries to profile")
     p_lr.set_defaults(func=cmd_lerobot_deep)
+
+    p_hd = sub.add_parser("lerobot-hd", help="Dual-camera HD LeRobot v3.0 lab: CPU vs NVDEC + latency breakdown + multi-worker scaling")
+    p_hd.add_argument("--path", default=None, help="Path to HD LeRobot v3.0 dataset (default: real lerobot/svla_so100_pickplace)")
+    p_hd.add_argument("-n", type=int, default=60, help="Number of queries per benchmark")
+    p_hd.set_defaults(func=cmd_lerobot_hd)
 
     p_fetch = sub.add_parser("fetch-real", help="Download genuine open-source datasets for all 5 formats")
     p_fetch.add_argument("--force", action="store_true")
