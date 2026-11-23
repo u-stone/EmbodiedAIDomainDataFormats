@@ -1,63 +1,96 @@
 # Embodied AI Dataset Formats Anatomy & Benchmark Lab
 
-面向系统程序员的具身智能（Embodied AI / VLA）主流数据集格式**底层解剖、统一只读访问与 I/O 压测实验项目**（不做跨格式转换，聚焦“读透、看透、测透”）。
+面向系统程序员的具身智能（Embodied AI / VLA）主流数据集格式**底层解剖、统一只读访问与 I/O 压测实验项目**（不做跨格式转换，聚焦“文件系统 / 二进制结构 / 非二进制元数据组织 / I/O 与解码性能”）。
 
 覆盖工业界与开源社区 5 种最具代表性的格式：
 1. **MCAP**（采集与日志层 — ROS 2 / Foxglove / Rerun）
 2. **HDF5**（单机经典训练层 — robomimic / ALOHA / ACT）
 3. **Zarr**（单机高并发训练层 — Diffusion Policy ReplayBuffer）
 4. **RLDS / TFRecord**（传统大规模 VLA 生态 — Open X-Embodiment / OpenVLA，零 TensorFlow 纯二进制 CRC32C + Protobuf 解析）
-5. **LeRobot v3.0**（当前 VLA 开源主流 — HuggingFace / OpenPI / SmolVLA / GR00T，直接用 PyArrow + PyAV 剖析分片全局行号映射与视频真实 GOP）
+5. **LeRobot v3.0**（当前 VLA 开源主流 — HuggingFace / OpenPI / SmolVLA / GR00T，PyArrow + PyAV + 原生 ISO BMFF MP4 `stbl` 解析）
+
+---
+
+## 深度研究文档索引（已落档）
+
+| 文档 | 内容摘要 |
+| --- | --- |
+| [`docs/REAL_DATASETS_ANATOMY.md`](docs/REAL_DATASETS_ANATOMY.md) | 5 份真实开源生产数据集（`lerobot/pusht`、Columbia Diffusion Policy `pusht.zarr`、Stanford robomimic `demo_v15.hdf5`、OXE GCS `berkeley_cable_routing`、RobotisAI ROS 2 `evButtonPush` MCAP）的三层实测解剖：文件系统 & `~/.cache/huggingface/hub/` 类 Git 内容寻址机制、二进制 Magic/Header/Box/CRC32C、非二进制元数据寻址链 |
+| [`docs/LEROBOT_V3_DEEP_DIVE.md`](docs/LEROBOT_V3_DEEP_DIVE.md) | **LeRobot v3.0 深度专题**：v2.1→v3.0 架构演进、5 大数学不变式与 Chan/Welford 统计重构、Parquet RowGroup & Predicate Pushdown、MP4 `stbl` 精确字节寻址、`delta_timestamps` & `*_is_pad` 掩码，以及**高清双摄真机 `lerobot/svla_so100_pickplace` 在 RTX 5080 上的 CPU (`libdav1d`) vs NVDEC (`av1_cuvid`) 与多 Worker 吞吐实测** |
+
+---
 
 ## 快速开始
 
+### 1. 环境初始化（Python 3.12 via `uv`）
+
 ```powershell
-# 1. 安装依赖（Python 3.12 via uv）
 uv sync --python 3.12
+uv run pytest -v
+```
 
-# 2. 准备样本：自动从 HuggingFace 拉取真实开源 LeRobot v3.0 (lerobot/pusht, ~35MB)，
-#    并为 MCAP / HDF5 / Zarr / RLDS 准备好严格符合原生规范的本地样本
-uv run edlab setup-samples
+### 2. 下载真实开源数据集（国内网络建议配置镜像）
 
-# 3. 逐个解剖底层存储结构、Schema、压缩与索引机制
-uv run edlab inspect lerobot_v3
-uv run edlab inspect mcap
-uv run edlab inspect hdf5
-uv run edlab inspect zarr
-uv run edlab inspect rlds
+> **下载避坑提示**：在国内网络下拉取大型 HuggingFace 视频/MCAP 分片时，建议同时开启镜像并关闭 `hf-xet` 以避免大文件传输卡死；若中途中断，重新执行会自动借助 `.cache/huggingface/download/*.metadata` 跳过已下载文件并断点续传。
 
-# 4. 追踪单步读取 & 滑窗采样（Action Chunking）的底层索引路径
-uv run edlab sample lerobot_v3 --ep 0 --step 10 --window
-uv run edlab sample mcap --ep 0 --step 10 --window
+```powershell
+# PowerShell 设置国内镜像与防卡死参数
+$env:HF_ENDPOINT = "https://hf-mirror.com"
+$env:HF_HUB_DISABLE_XET = "1"
 
-# 5. 五种格式横向压测对比（顺序读 / 随机单步 / 随机滑窗）
-uv run edlab compare -n 60
-
-# 6. 拉取 5 份真实开源样本并做三层深度解剖（文件系统 / 二进制结构 / 非二进制元数据关系）
+# 拉取 5 份真实开源样本（~250 MB）
 uv run edlab fetch-real
+
+# 单独运行高清双摄真机 SO-100 实战（首次运行自动拉取 lerobot/svla_so100_pickplace, ~448 MB）
+uv run edlab lerobot-hd -n 80
+```
+
+### 3. 常用 CLI 解剖与压测命令
+
+```powershell
+# 1) 三层深度解剖（文件系统 / 二进制结构 / 非二进制元数据组织）
 uv run edlab anatomy lerobot_v3
 uv run edlab anatomy zarr
 uv run edlab anatomy hdf5
 uv run edlab anatomy rlds
 uv run edlab anatomy mcap
 
-# 7. 解剖本机 ~/.cache/huggingface/hub/ 类 Git 内容寻址缓存与符号链接/硬链接关系
+# 2) 解剖本机 ~/.cache/huggingface/hub/ 类 Git 内容寻址缓存（refs / blobs / snapshots / symlink）
 uv run edlab hf-cache
 
-# 8. LeRobot v3.0 五大子系统深度剖析（不变式审计 / Parquet RowGroup / MP4 stbl 字节寻址 / Seek 压测 / delta_timestamps）
+# 3) LeRobot v3.0 五大子系统深度审计与 MP4 字节级 Seek 剖析
 uv run edlab lerobot-deep -n 100
+uv run edlab lerobot-deep --path data/real/lerobot_v3_so100_pickplace -n 60
+
+# 4) 高清双摄真机实战（CPU libdav1d vs NVIDIA NVDEC + 延迟拆解 + 1/2/4/8 Worker 扩展性）
+uv run edlab lerobot-hd -n 80
+
+# 5) 轻量合成/混合样本 5 格式横向压测对比
+uv run edlab setup-samples
+uv run edlab compare -n 60
 ```
 
-> 任何命令均支持 `--path <你的真实数据集路径>` 直接解剖你本地已有的真机 MCAP、ALOHA HDF5、Diffusion Policy Zarr、Bridge RLDS 或 LeRobot v3.0 数据集。
+> 所有 `inspect` / `sample` / `bench` / `anatomy` / `lerobot-deep` / `lerobot-hd` 命令均支持 `--path <你的本地真实数据集路径>`。
 
-## 推荐阅读代码顺序（吃透每种格式的核心机制）
+---
 
-| 顺序 | 代码文件 | 重点理解的底层机制 |
-| --- | --- | --- |
-| 1 | `src/embodied_formats/common.py` | 统一只读契约：`StepSample` vs `WindowSample`（`obs_horizon` + `action_horizon`） |
-| 2 | `src/embodied_formats/formats/mcap_format.py` | 异步多通道纳秒时间戳、无 Episode 边界、ChunkIndex、主相机时钟对齐与抖动测量 |
-| 3 | `src/embodied_formats/formats/hdf5_format.py` | B-Tree 树状层次、Contiguous vs Chunked 压缩比对比、单文件切片 |
-| 4 | `src/embodied_formats/formats/zarr_format.py` | 分块目录树、Blosc(LZ4/BitShuffle)、`meta/episode_ends` 扁平零拷贝索引 |
-| 5 | `src/embodied_formats/formats/rlds_format.py` | TFRecord 二进制帧格式、Masked CRC32C、Protobuf Wire 格式、`Episode→Steps` 整轨反序列化代价 |
-| 6 | `src/embodied_formats/formats/lerobot_v3_format.py` | v3.0 共享分片、**全局行号→局部行号映射**、PyAV 拆包验证真实 `max_gop` 与随机 Seek 解码代价 |
-| 7 | `src/embodied_formats/benchmark.py` | 3 种典型训练 I/O 模式（Sequential / Random Step / Random Window）的延迟分位统计 |
+## VS Code 源码调试与字节对照指南
+
+项目已内置 `.vscode/settings.json`、`.vscode/launch.json` 与 `.vscode/extensions.json`（推荐安装 `Python`、`debugpy`、`Pylance` 与 **`Hex Editor`** 扩展，可直接右键 `data/real/` 下的 `.parquet` / `.mp4` / `.hdf5` / `.tfrecord` / `.mcap` 对照十六进制字节流）。
+
+按 `F5` 可直接选择以下核心调试入口：
+- **`1. Debug: LeRobot v3.0 Deep Study (lerobot-deep)`**
+- **`1b. Debug: Dual-Cam HD SO-100 Lab (CPU vs RTX NVDEC + Workers)`**
+- **`2. Debug: Deep 3-Layer Anatomy (Pick Format)`**（弹窗选择 5 种格式之一）
+- **`7. Debug: Current Python File (Step into Libs)`**（`justMyCode: false`，支持单步钻入 `pyarrow / av / h5py / zarr / mcap`）
+
+### 推荐打断点的关键代码位置
+
+| 代码文件 | 关键函数 / 观察点 |
+| --- | --- |
+| `src/embodied_formats/lerobot_v3_deep.py` | `parse_mp4_sample_table()`（手解 MP4 `stts/stss/stsc/stsz/stco`）、`resolve_sample()`（Keyframe 二分与 `mdat` 字节偏移）、`audit_v3_integrity()`（Chan/Welford 统计重构） |
+| `src/embodied_formats/lerobot_v3_hd_bench.py` | `benchmark_single_video_decoder()`（`libdav1d` vs `av1_cuvid`）、`profile_step_latency_breakdown()`（Parquet vs 双摄解码耗时拆解） |
+| `src/embodied_formats/formats/lerobot_v3_format.py` | `read_step()` / `read_window()`（跨分片全局行号→局部行号映射与 PyAV Seek） |
+| `src/embodied_formats/formats/rlds_format.py` | `masked_crc32c()`、`decode_tf_example()`（纯 Python TFRecord 帧与 Protobuf Wire 解码） |
+| `src/embodied_formats/formats/mcap_format.py` | `read_step()`（多通道异步时间戳主相机对齐与偏差测量） |
+| `src/embodied_formats/anatomy.py` | `analyze_filesystem()`、`inspect_hf_hub_cache()`（symlink/hardlink/inode 与 HF 缓存结构） |
