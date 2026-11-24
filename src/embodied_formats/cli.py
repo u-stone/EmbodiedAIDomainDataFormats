@@ -10,13 +10,19 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from embodied_formats.anatomy import deep_analyze, inspect_hf_hub_cache
-from embodied_formats.benchmark import benchmark_reader
 from embodied_formats.common import BaseFormatReader, format_bytes
+from embodied_formats.deep_dive import (
+    run_full_hdf5_deep_study,
+    run_full_lerobot_v3_deep_study,
+    run_full_mcap_deep_study,
+    run_full_rlds_deep_study,
+    run_full_zarr_deep_study,
+    run_hd_dual_cam_lab,
+)
 from embodied_formats.formats import FORMAT_REGISTRY
-from embodied_formats.lerobot_v3_deep import run_full_lerobot_v3_deep_study
-from embodied_formats.lerobot_v3_hd_bench import run_hd_dual_cam_lab
-from embodied_formats.real_samples import (
+from embodied_formats.lab.anatomy import deep_analyze, inspect_hf_hub_cache
+from embodied_formats.lab.benchmark import benchmark_reader
+from embodied_formats.lab.real_samples import (
     fetch_real_hdf5,
     fetch_real_lerobot_v3,
     fetch_real_lerobot_v3_so100,
@@ -25,7 +31,7 @@ from embodied_formats.real_samples import (
     fetch_real_zarr,
     real_sample_paths,
 )
-from embodied_formats.samples import (
+from embodied_formats.lab.samples import (
     default_sample_paths,
     setup_hdf5_sample,
     setup_lerobot_v3_real,
@@ -342,6 +348,34 @@ def cmd_lerobot_hd(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_deep(args: argparse.Namespace) -> None:
+    fmt = args.format
+    target = Path(args.path) if args.path else real_sample_paths(Path(args.real_root))[fmt]
+    if fmt == "lerobot_v3":
+        res = run_full_lerobot_v3_deep_study(target, num_seek_queries=args.n)
+    elif fmt == "rlds":
+        res = run_full_rlds_deep_study(target, num_queries=args.n)
+    elif fmt == "hdf5":
+        res = run_full_hdf5_deep_study(target, num_queries=args.n)
+    elif fmt == "zarr":
+        res = run_full_zarr_deep_study(target, num_queries=args.n)
+    elif fmt == "mcap":
+        res = run_full_mcap_deep_study(target)
+    else:
+        raise ValueError(f"Unsupported format: {fmt}")
+
+    for section_key, section_val in res.items():
+        if section_key == "dataset_path":
+            continue
+        console.print(
+            Panel(
+                json.dumps(section_val, indent=2, ensure_ascii=False),
+                title=f"Deep Dive [{fmt}] — {section_key}",
+                border_style="cyan",
+            )
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="edlab",
@@ -350,6 +384,12 @@ def main() -> None:
     parser.add_argument("--data-root", default=str(DEFAULT_DATA_ROOT), help="Root directory for sample datasets")
     parser.add_argument("--real-root", default=str(DEFAULT_REAL_ROOT), help="Root directory for real open-source datasets")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_deep = sub.add_parser("deep", help="Format-specific low-level deep-dive study (lerobot_v3 / rlds / hdf5 / zarr / mcap)")
+    p_deep.add_argument("format", choices=list(FORMAT_REGISTRY.keys()))
+    p_deep.add_argument("--path", default=None, help="Optional custom dataset path")
+    p_deep.add_argument("-n", type=int, default=60, help="Number of queries for profiling")
+    p_deep.set_defaults(func=cmd_deep)
 
     p_hf = sub.add_parser("hf-cache", help="Inspect ~/.cache/huggingface/hub Git-like refs/blobs/snapshots & symlinks")
     p_hf.add_argument("--filter", default="datasets--", help="Substring filter for repo cache dirs")

@@ -1,4 +1,4 @@
-"""End-to-end verification tests for all 5 Embodied AI dataset format readers & benchmarks."""
+"""End-to-end verification tests for all 5 Embodied AI dataset format readers, benchmarks, and deep-dives."""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from embodied_formats.benchmark import benchmark_reader
+from embodied_formats.deep_dive import (
+    run_full_hdf5_deep_study,
+    run_full_lerobot_v3_deep_study,
+    run_full_mcap_deep_study,
+    run_full_rlds_deep_study,
+    run_full_zarr_deep_study,
+)
 from embodied_formats.formats import (
     HDF5FormatReader,
     LeRobotV3FormatReader,
@@ -14,7 +20,9 @@ from embodied_formats.formats import (
     RLDSFormatReader,
     ZarrFormatReader,
 )
-from embodied_formats.samples import (
+from embodied_formats.lab.benchmark import benchmark_reader
+from embodied_formats.lab.real_samples import real_sample_paths
+from embodied_formats.lab.samples import (
     setup_hdf5_sample,
     setup_mcap_sample,
     setup_rlds_sample,
@@ -73,15 +81,32 @@ def test_rlds_reader(tmp_path: Path) -> None:
 
 
 def test_lerobot_v3_real_if_present() -> None:
-    real_path = Path("data/lerobot_v3/pusht")
+    real_path = Path("data/real/lerobot_v3_pusht")
     if not (real_path / "meta" / "info.json").exists():
-        pytest.skip("Real lerobot/pusht sample not downloaded yet (run `uv run edlab setup-samples`)")
+        pytest.skip("Real lerobot/pusht sample not downloaded yet")
     with LeRobotV3FormatReader(real_path) as r:
         _assert_reader_contract(r)
-
-    from embodied_formats.lerobot_v3_deep import run_full_lerobot_v3_deep_study
 
     deep = run_full_lerobot_v3_deep_study(real_path, num_seek_queries=10)
     assert deep["integrity_audit"]["global_row_contiguity_ok"] is True
     assert deep["parquet_internals"]["num_row_groups"] >= 1
     assert len(deep["mp4_seek_profiles"]) >= 1
+
+
+def test_real_deep_dives_if_present() -> None:
+    paths = real_sample_paths(Path("data/real"))
+    if paths["rlds"].exists():
+        r = run_full_rlds_deep_study(paths["rlds"], num_queries=6)
+        assert r["tfrecord_framing_and_crc32c_audit"]["all_len_crc32c_ok"] is True
+        assert r["tfrecord_framing_and_crc32c_audit"]["all_payload_crc32c_ok"] is True
+    if paths["hdf5"].exists():
+        h = run_full_hdf5_deep_study(paths["hdf5"], num_queries=20)
+        assert h["superblock_binary"]["magic_signature_ok"] is True
+        assert h["storage_btree_and_embedded_metadata"]["num_demos"] > 0
+    if paths["zarr"].exists():
+        z = run_full_zarr_deep_study(paths["zarr"], num_queries=15)
+        assert z["blosc_all_chunks_scan"]["total_chunk_files"] > 0
+    if paths["mcap"].exists():
+        m = run_full_mcap_deep_study(paths["mcap"])
+        assert m["chunks_and_ros2_cdr_decode"]["chunk_count"] > 0
+        assert len(m["chunks_and_ros2_cdr_decode"]["decoded_ros2_cdr_samples"]) >= 2

@@ -23,8 +23,8 @@ import av
 import numpy as np
 import pyarrow.parquet as pq
 
+from embodied_formats.deep_dive.lerobot_v3 import parse_mp4_sample_table
 from embodied_formats.formats.lerobot_v3_format import LeRobotV3FormatReader
-from embodied_formats.lerobot_v3_deep import parse_mp4_sample_table
 
 _SW_TO_CUVID = {
     "h264": "h264_cuvid",

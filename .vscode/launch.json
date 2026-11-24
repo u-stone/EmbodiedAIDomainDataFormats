@@ -2,20 +2,18 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "1. Debug: LeRobot v3.0 Deep Study (lerobot-deep)",
+      "name": "1. Deep Dive: LeRobot v3.0 (pusht)",
       "type": "debugpy",
       "request": "launch",
       "module": "embodied_formats.cli",
-      "args": ["lerobot-deep", "-n", "30"],
+      "args": ["deep", "lerobot_v3", "-n", "30"],
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     },
     {
-      "name": "1b. Debug: Dual-Cam HD SO-100 Lab (CPU vs RTX NVDEC + Workers)",
+      "name": "1b. Deep Dive: LeRobot v3.0 HD Dual-Cam SO-100 (CPU vs RTX NVDEC)",
       "type": "debugpy",
       "request": "launch",
       "module": "embodied_formats.cli",
@@ -23,12 +21,54 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     },
     {
-      "name": "2. Debug: Deep 3-Layer Anatomy (Pick Format)",
+      "name": "2. Deep Dive: RLDS / TFRecord (CRC32C + Protobuf + Read-Amp)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["deep", "rlds", "-n", "20"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
+    },
+    {
+      "name": "3. Deep Dive: HDF5 / robomimic (Superblock + B-Tree + MuJoCo XML)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["deep", "hdf5", "-n", "100"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
+    },
+    {
+      "name": "4. Deep Dive: Zarr / Diffusion Policy (Blosc + Read-Amp + Workers)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["deep", "zarr", "-n", "40"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
+    },
+    {
+      "name": "5. Deep Dive: ROS 2 bag / MCAP (Chunks + Raw CDR Decode + Clock Skew)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "embodied_formats.cli",
+      "args": ["deep", "mcap"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
+    },
+    {
+      "name": "6. 3-Layer Anatomy (Pick Format)",
       "type": "debugpy",
       "request": "launch",
       "module": "embodied_formats.cli",
@@ -36,33 +76,10 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     },
     {
-      "name": "3. Debug: Read Step & Action-Chunk Window (Pick Format)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "embodied_formats.cli",
-      "args": [
-        "sample",
-        "${input:datasetFormat}",
-        "--ep",
-        "0",
-        "--step",
-        "10",
-        "--window"
-      ],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
-    },
-    {
-      "name": "4. Debug: HF Hub Cache Anatomy (hf-cache)",
+      "name": "7. HF Hub Cache Anatomy (~/.cache/huggingface/hub)",
       "type": "debugpy",
       "request": "launch",
       "module": "embodied_formats.cli",
@@ -70,25 +87,10 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     },
     {
-      "name": "5. Debug: 5-Format Benchmark Compare",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "embodied_formats.cli",
-      "args": ["compare", "-n", "20"],
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
-    },
-    {
-      "name": "6. Debug: Pytest (All Tests)",
+      "name": "8. Pytest (All Tests)",
       "type": "debugpy",
       "request": "launch",
       "module": "pytest",
@@ -96,29 +98,25 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     },
     {
-      "name": "7. Debug: Current Python File (Step into Libs)",
+      "name": "9. Current Python File (Step into 3rd-party Libs)",
       "type": "debugpy",
       "request": "launch",
       "program": "${file}",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": false,
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}/src"
-      }
+      "env": { "PYTHONPATH": "${workspaceFolder}/src" }
     }
   ],
   "inputs": [
     {
       "id": "datasetFormat",
       "type": "pickString",
-      "description": "Select Embodied AI dataset format to debug",
-      "options": ["lerobot_v3", "zarr", "hdf5", "rlds", "mcap"],
+      "description": "Select Embodied AI dataset format",
+      "options": ["lerobot_v3", "rlds", "hdf5", "zarr", "mcap"],
       "default": "lerobot_v3"
     }
   ]
