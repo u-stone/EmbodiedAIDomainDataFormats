@@ -58,10 +58,21 @@ flowchart LR
 
 ---
 
-## 5. 调试入口与推荐断点
+## 5. VS Code 单步调试与 Hex Editor 字节对照指南
 
 - **CLI**：`uv run edlab deep mcap`
-- **VS Code `F5`**：`5. Deep Dive: ROS 2 bag / MCAP (Chunks + Raw CDR Decode + Clock Skew)`
-- **推荐断点**：
-  - `src/embodied_formats/deep_dive/mcap.py`：`CDRReader`、`decode_ros2_compressed_image_cdr()`、`decode_ros2_joint_state_cdr()`、`analyze_async_clocks_and_alignment()`
-  - `src/embodied_formats/formats/mcap_format.py`：`read_step()`
+- **VS Code `F5` 启动项**：`5. Deep Dive: ROS 2 bag / MCAP (Chunks + Raw CDR Decode + Clock Skew)`
+- **推荐断点与 Watch 观察要点**：
+  1. `src/embodied_formats/deep_dive/mcap.py` → `CDRReader`、`decode_ros2_compressed_image_cdr()`、`decode_ros2_joint_state_cdr()`
+     - **Watch**：`data[:16]`、`self.pos`（观察 `_align(4)` 与 `_align(8)` 的内存对齐步进）、`fmt` (`"rgb8; jpeg compressed bgr8"`)、`names`、`positions`
+     - **观察重点**：零 ROS 2 安装手解 OMG CDR 二进制协议，直接看懂 DDS 序列化内存布局。
+  2. `src/embodied_formats/deep_dive/mcap.py` → `analyze_async_clocks_and_alignment()`
+     - **Watch**：`dts_ms`、`per_topic_jitter`、`best_ms`、`alignment_skew`
+     - **观察重点**：亲眼看到真机三路相机 `147 ms` 掉帧尖峰、彼此 `10–70 ms` 相位差，以及 193 Hz 关节与 29 Hz 相机的最近邻对齐偏差。
+  3. `src/embodied_formats/deep_dive/mcap.py` → `analyze_mcap_sidecars()`
+     - **Watch**：`bag_info`、`out["robot_urdf"]`
+     - **观察重点**：看 `metadata.yaml` + `episode_info.json` + `robot.urdf` 如何与 `.mcap` 配合构成完整真机回放上下文。
+- **Hex Editor 原始字节对照**：
+  - 打开 `data/real/mcap_robotis_button_push/0_0.mcap`：
+    - 文件首 8 字节与尾 8 字节均为 `89 4D 43 41 50 30 0D 0A`（`\x89MCAP0\r\n`）；
+    - 倒数 37 字节处是 `02`（Footer Opcode），紧跟 `summary_start = 161,685,840`。

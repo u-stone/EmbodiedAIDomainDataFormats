@@ -65,10 +65,21 @@ flowchart TD
 
 ---
 
-## 5. 调试入口与推荐断点
+## 5. VS Code 单步调试与 Hex Editor 字节对照指南
 
 - **CLI**：`uv run edlab deep hdf5 -n 200`
-- **VS Code `F5`**：`3. Deep Dive: HDF5 / robomimic (Superblock + B-Tree + MuJoCo XML)`
-- **推荐断点**：
-  - `src/embodied_formats/deep_dive/hdf5.py`：`parse_hdf5_superblock()`、`audit_hdf5_storage_and_metadata()`、`profile_hdf5_slicing()`
-  - `src/embodied_formats/formats/hdf5_format.py`：`read_window()`
+- **VS Code `F5` 启动项**：`3. Deep Dive: HDF5 / robomimic (Superblock + B-Tree + MuJoCo XML)`
+- **推荐断点与 Watch 观察要点**：
+  1. `src/embodied_formats/deep_dive/hdf5.py` → `parse_hdf5_superblock()`
+     - **Watch**：`ver`、`offset_sz`、`length_sz`、`group_leaf_k`、`eof_addr`、`fsize`
+     - **观察重点**：看清 HDF5 单文件如何用 Superblock 管理整个内部虚拟文件系统。
+  2. `src/embodied_formats/deep_dive/hdf5.py` → `audit_hdf5_storage_and_metadata()`
+     - **Watch**：`total_datasets` (`6008`)、`total_stored` (`11.04 MB`)、`btree_overhead` (`23.96 MB / 68.47%`)、`ea`（`env_args` JSON）、`xml_str[:200]`
+     - **观察重点**：看清“11 MB 真实数据为何膨胀成 35 MB 文件”——大量小 Dataset 的 B-Tree 开销 + 200 份重复内嵌的 MuJoCo XML。
+  3. `src/embodied_formats/deep_dive/hdf5.py` → `profile_hdf5_slicing()`
+     - **Watch**：`act0_offset` (`20288`)、`seq_us`、`rand_us`
+     - **观察重点**：观察 `contiguous` 无压缩数据集的物理连续偏移与 ~90 µs 微秒级切片延迟。
+- **Hex Editor 原始字节对照**：
+  - 打开 `data/real/hdf5_robomimic/demo_v15.hdf5`：
+    - `0x00..0x07`：`89 48 44 46 0D 0A 1A 0A`（`\x89HDF\r\n\x1a\n`）
+    - 跳转至 `act0_offset = 20288 (0x4F40)`：直接看到 `demo_0/actions` 连续排列的原始 IEEE 754 `float64` 字节。

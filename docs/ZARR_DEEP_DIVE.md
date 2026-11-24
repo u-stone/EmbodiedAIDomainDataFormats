@@ -57,10 +57,20 @@ ver=2 lz=1 flags=0x94 typesize=4 | nbytes=17,805,312 (16.98 MB) | blocksize=262,
 
 ---
 
-## 4. 调试入口与推荐断点
+## 4. VS Code 单步调试与 Hex Editor 字节对照指南
 
 - **CLI**：`uv run edlab deep zarr -n 60`
-- **VS Code `F5`**：`4. Deep Dive: Zarr / Diffusion Policy (Blosc + Read-Amp + Workers)`
-- **推荐断点**：
-  - `src/embodied_formats/deep_dive/zarr.py`：`scan_blosc_chunks()`、`analyze_chunk_alignment_and_read_amp()`、`profile_zarr_access_and_concurrency()`
-  - `src/embodied_formats/formats/zarr_format.py`：`read_window()`
+- **VS Code `F5` 启动项**：`4. Deep Dive: Zarr / Diffusion Policy (Blosc + Read-Amp + Workers)`
+- **推荐断点与 Watch 观察要点**：
+  1. `src/embodied_formats/deep_dive/zarr.py` → `scan_blosc_chunks()`
+     - **Watch**：`flags` (`0x94`)、`typesize` (`4`, float32!)、`nbytes` (`17805312`)、`cbytes` (`174925`)、`nbytes / cbytes`
+     - **观察重点**：看透 Blosc 16 字节二进制头，理解 BitShuffle + Zstd 如何把 2.65 GB float32 图像压成 28.4 MB。
+  2. `src/embodied_formats/deep_dive/zarr.py` → `analyze_chunk_alignment_and_read_amp()`
+     - **Watch**：`ep_ends[:5]`、`chunk0` (`161`)、`cross_chunk_eps` (`151/206`)、`chunk_uncomp_bytes` (`16.98 MB`)
+     - **观察重点**：理解 `chunks[0]` 选型对随机读的致命影响（`161x` 读放大）以及 `meta/episode_ends` 的零拷贝扁平轨迹索引。
+  3. `src/embodied_formats/deep_dive/zarr.py` → `profile_zarr_access_and_concurrency()`
+     - **Watch**：`rand_ms`、`scaling`
+     - **观察重点**：对比单帧随机读（2.74 ms）与无锁多进程扩展行为。
+- **Hex Editor / 文本对照**：
+  - 文本打开 `data/real/zarr_pusht/pusht_cchi_v7_replay.zarr/data/img/.zarray` 查看 JSON 控制面；
+  - Hex Editor 打开 `data/real/zarr_pusht/pusht_cchi_v7_replay.zarr/data/img/0.0.0.0`，对照前 16 字节 `02 01 94 04 00 B0 0F 01 00 00 04 00 4D AB 02 00`。

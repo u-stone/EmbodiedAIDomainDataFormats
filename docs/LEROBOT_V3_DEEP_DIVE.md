@@ -171,3 +171,30 @@ VLA / ACT / Diffusion Policy 训练时通常一次读取“过去 `obs_horizon` 
 | `4` | `456.89` | `803.14 MB/s` | 2.31x 加速 |
 | **`8`** | **`560.17`** | **`984.67 MB/s`** | **接近 1 GB/s 有效 RGB 带宽，足以喂饱单卡 RTX 5080 的 VLA/ACT/DP 训练** |
 
+---
+
+## 7. VS Code 单步调试与 Hex Editor 字节对照指南
+
+- **VS Code `F5` 启动项**：
+  - `1. Deep Dive: LeRobot v3.0 (pusht)`（快速走通全套机制）
+  - `1b. Deep Dive: LeRobot v3.0 HD Dual-Cam SO-100 (CPU vs RTX NVDEC)`（跟踪高清双摄瓶颈与 NVDEC）
+- **推荐断点与 Watch 观察要点**：
+  1. `src/embodied_formats/deep_dive/lerobot_v3.py` → `parse_mp4_sample_table()`
+     - **Watch**：`btype`、`size`、`pos`、`keyframes_1based[:10]`、`sample_sizes[:10]`、`moov_offset`、`mdat_offset`
+     - **观察重点**：亲眼看 `ftyp → free → mdat → moov` 顶层 Box 递归进入 `stbl`，体会 `moov` 位于文件末尾对云端 HTTP Range 流式读取的影响。
+  2. `src/embodied_formats/deep_dive/lerobot_v3.py` → `MP4SampleTable.resolve_sample()`
+     - **Watch**：`sample_idx_0based`、`kf_0based`、`offsets[sample_idx_0based]`、`decode_frames_needed`
+     - **观察重点**：验证如何仅靠 `stss` 二分查找 + `stsc/stco/stsz` 算出任意帧的精确 `mdat` 磁盘偏移，以及 `GOP=2` 下仅需解码 1–2 帧。
+  3. `src/embodied_formats/deep_dive/lerobot_v3.py` → `audit_v3_integrity()`（Chan/Welford 循环处）
+     - **Watch**：`agg_mean`、`agg_m2`、`rec_std`、`ref_std`
+     - **观察重点**：验证 206 条 Episode 局部统计量如何通过并行方差公式无损还原全局 `meta/stats.json`。
+  4. `src/embodied_formats/formats/lerobot_v3_format.py` → `read_step()` / `read_window()`
+     - **Watch**：`global_row`、`local_row`、`v_from`、`target_ts`
+     - **观察重点**：牢记 v3.0 核心坑点——**全局行号必须减去分片起始行号才是 Parquet 局部索引**。
+  5. `src/embodied_formats/deep_dive/lerobot_v3_hd.py` → `_benchmark_via_explicit_codec()`
+     - **Watch**：`lat_ms`、`frames_per_seek`
+     - **观察重点**：观察 `ctx.flush_buffers()` 在 RTX NVDEC 上触发的 ~23 ms 硬件管线排空尖峰。
+- **Hex Editor 原始字节对照**：
+  - `data/real/lerobot_v3_pusht/data/chunk-000/file-000.parquet`：开头 `0x00` 为 `50 41 52 31 (PAR1)`，末尾最后 8 字节为 4B `footer_len` + `PAR1`。
+  - `data/real/lerobot_v3_pusht/videos/observation.image/chunk-000/file-000.mp4`：`0x00` 为 `ftyp isom av01`，跳转偏移 `6735984 (0x66C7B0)` 即为 `moov` 起始处。
+

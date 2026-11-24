@@ -67,10 +67,22 @@ TFRecord 单条记录的精确物理帧布局（零 TensorFlow 依赖，见 [rld
 
 ---
 
-## 5. 调试入口与推荐断点
+## 5. VS Code 单步调试与 Hex Editor 字节对照指南
 
 - **CLI**：`uv run edlab deep rlds -n 25`
-- **VS Code `F5`**：`2. Deep Dive: RLDS / TFRecord (CRC32C + Protobuf + Read-Amp)`
-- **推荐断点**：
-  - `src/embodied_formats/deep_dive/rlds.py`：`audit_tfrecord_shard()`、`profile_random_read_degradation()`
-  - `src/embodied_formats/formats/rlds_format.py`：`masked_crc32c()`、`decode_tf_example()`
+- **VS Code `F5` 启动项**：`2. Deep Dive: RLDS / TFRecord (CRC32C + Protobuf + Read-Amp)`
+- **推荐断点与 Watch 观察要点**：
+  1. `src/embodied_formats/deep_dive/rlds.py` → `audit_tfrecord_shard()`
+     - **Watch**：`rec_start`、`length`、`hex(len_crc)`、`len_crc_ok`、`payload_crc_ok`
+     - **观察重点**：体会 TFRecord 没有任何目录/索引，必须逐条按 `12 + length + 4` 顺序跳帧扫描。
+  2. `src/embodied_formats/formats/rlds_format.py` → `decode_tf_example()` 与 `_iter_pb_fields()`
+     - **Watch**：`tag`、`field_num`、`wire_type`、`key`、`features_dict.keys()`
+     - **观察重点**：零 TensorFlow 依赖手解 Protobuf 线协议（varint + length-delimited + packed float32），观察为何扁平 `9216` 个 float 必须靠 `features.json` 才能 reshape 成 `(18, 512)`。
+  3. `src/embodied_formats/deep_dive/rlds.py` → `profile_random_read_degradation()`
+     - **Watch**：`bytes_read_total / bytes_useful_total`（`89.1x` 读放大）、`nocache_ms` vs `cached_ms`
+     - **观察重点**：直观感受“为取 1 帧 32 KB PNG 却要反序列化整条 2–5 MB Episode Protobuf”的真实代价。
+- **Hex Editor 原始字节对照**：
+  - 打开 `data/real/rlds_berkeley_cable_routing/berkeley_cable_routing-train.tfrecord-00004-of-00064`：
+    - `0x00..0x07`：`89 E0 20 00 00 00 00 00`（小端 `uint64` = `2,154,633`）
+    - `0x08..0x0B`：`89 F3 DD 25`（小端 Masked CRC32C = `0x25DDF389`）
+    - `0x17..`：可见明文 ASCII `steps/observation/...`，往后翻可见无损 PNG 魔数 `89 50 4E 47 0D 0A 1A 0A`。
