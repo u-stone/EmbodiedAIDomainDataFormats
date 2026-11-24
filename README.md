@@ -11,13 +11,16 @@
 
 ---
 
-## 深度研究文档索引（全部实测已落档）
+## 深度研究文档索引（5 种格式独立落档）
 
 | 文档 | 内容摘要 |
 | --- | --- |
 | [`docs/REAL_DATASETS_ANATOMY.md`](docs/REAL_DATASETS_ANATOMY.md) | 5 份真实开源生产数据集的三层横向解剖：文件系统 & `~/.cache/huggingface/hub/` 类 Git 内容寻址机制、二进制 Magic/Header/Box/CRC32C、非二进制元数据寻址链 |
-| [`docs/LEROBOT_V3_DEEP_DIVE.md`](docs/LEROBOT_V3_DEEP_DIVE.md) | **LeRobot v3.0 专题**：5 大数学不变式与 Chan/Welford 统计重构、Parquet RowGroup & Predicate Pushdown、MP4 `stbl` 精确字节寻址、`delta_timestamps` & `*_is_pad`，以及**高清双摄真机 `svla_so100_pickplace` 在 RTX 5080 上的 CPU (`libdav1d`) vs NVDEC (`av1_cuvid`) 与多 Worker 实测** |
-| [`docs/OTHER_FORMATS_DEEP_DIVE.md`](docs/OTHER_FORMATS_DEEP_DIVE.md) | **RLDS / HDF5 / Zarr / MCAP 四大格式专题**：RLDS `89x` 读放大与全分片 CRC32C、HDF5 `68.5%` B-Tree/MuJoCo XML 开销与微秒切片、Zarr `161x` Chunk 读放大与 Blosc 全扫描、MCAP 真机 ROS 2 CDR 原始手解与多相机时钟抖动实测 |
+| [`docs/LEROBOT_V3_DEEP_DIVE.md`](docs/LEROBOT_V3_DEEP_DIVE.md) | **LeRobot v3.0**：5 大数学不变式与 Chan/Welford 统计重构、Parquet RowGroup & Predicate Pushdown、MP4 `stbl` 精确字节寻址、`delta_timestamps` & `*_is_pad`，以及高清双摄 `svla_so100_pickplace` 在 RTX 5080 上的 CPU (`libdav1d`) vs NVDEC (`av1_cuvid`) 与多 Worker 实测 |
+| [`docs/RLDS_DEEP_DIVE.md`](docs/RLDS_DEEP_DIVE.md) | **RLDS / TFRecord**：全分片 Masked CRC32C 审计、Protobuf Wire 4 路无损 PNG 拆解、`features.json` 重塑机制、`89.1x` 读放大与 Shuffle Buffer 实测 |
+| [`docs/HDF5_DEEP_DIVE.md`](docs/HDF5_DEEP_DIVE.md) | **HDF5 / robomimic**：Superblock v0、6,008 个 Dataset 导致的 `68.47%` B-Tree/MuJoCo XML 开销账本、微秒级连续切片实测 |
+| [`docs/ZARR_DEEP_DIVE.md`](docs/ZARR_DEEP_DIVE.md) | **Zarr / Diffusion Policy**：全量 160 个 Blosc 16B 二进制头扫描（`95.63x` 压缩比）、`chunks[0]=161` 导致的 `161x` 读放大与无锁多进程扩展实测 |
+| [`docs/MCAP_DEEP_DIVE.md`](docs/MCAP_DEEP_DIVE.md) | **ROS 2 bag / MCAP**：197 个 ChunkIndex、零 ROS 2 依赖纯 Python `CDR_LE` 相机/关节解码、真机三路相机掉帧抖动与跨通道对齐偏差、`metadata.yaml` + `robot.urdf` |
 
 ---
 
