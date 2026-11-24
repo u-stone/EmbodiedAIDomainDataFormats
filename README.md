@@ -21,6 +21,7 @@
 | [`docs/HDF5_DEEP_DIVE.md`](docs/HDF5_DEEP_DIVE.md) | **HDF5 / robomimic**：Superblock v0、6,008 个 Dataset 导致的 `68.47%` B-Tree/MuJoCo XML 开销账本、微秒级连续切片实测 |
 | [`docs/ZARR_DEEP_DIVE.md`](docs/ZARR_DEEP_DIVE.md) | **Zarr / Diffusion Policy**：全量 160 个 Blosc 16B 二进制头扫描（`95.63x` 压缩比）、`chunks[0]=161` 导致的 `161x` 读放大与无锁多进程扩展实测 |
 | [`docs/MCAP_DEEP_DIVE.md`](docs/MCAP_DEEP_DIVE.md) | **ROS 2 bag / MCAP**：197 个 ChunkIndex、零 ROS 2 依赖纯 Python `CDR_LE` 相机/关节解码、真机三路相机掉帧抖动与跨通道对齐偏差、`metadata.yaml` + `robot.urdf` |
+| [`docs/DEBUGGING_GUIDE.md`](docs/DEBUGGING_GUIDE.md) | **5 种格式 VS Code 单步调试与字节对照指南**：每个格式的 `F5` 入口、精确断点与 Watch 观测变量、Hex Editor 磁盘字节偏移对照要点 |
 
 ---
 
