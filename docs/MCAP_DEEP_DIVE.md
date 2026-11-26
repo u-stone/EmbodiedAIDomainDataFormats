@@ -139,3 +139,15 @@ MCAP 本身语言与序列化无关（也可存 Protobuf / JSON / FlatBuffers）
 | `episode_info.json` → `robot_type` & `device_serial` | `str` | 自定义 | 机器人型号（`"frontier_omy_f3m"`）与设备序列号（`"gaemi-1-g50-0203"`） |
 | `episode_info.json` → `episode_index` / `fps` / `needs_review` | `int/bool` | 自定义 | 轨迹编号、目标抽帧帧率（`15`）、人工质检标记 |
 | `robot.urdf` | XML (`<link>`/`<joint>`) | 自定义 | 17 个连杆与 16 个关节的物理尺寸、限位与运动学树 |
+
+---
+
+## 7. 参考资料与官方来源
+
+- **MCAP 官方二进制格式规范（Record / Footer / Summary / Chunk）**：https://mcap.dev/spec
+- **Foxglove MCAP 官方仓库与 Python SDK**：https://github.com/foxglove/mcap
+- **OMG CDR (Common Data Representation) 序列化规范（ROS 2 RMW 底层线协议）**：https://www.omg.org/spec/DDS-XTypes/
+- **ROS 2 `rosbag2` MCAP 存储插件与 `metadata.yaml`**：https://github.com/ros2/rosbag2
+- **ROS 2 标准消息定义（`CompressedImage` / `JointState`）**：https://github.com/ros2/common_interfaces
+- **本实验实测开源数据集**：
+  - RobotisAI `evButtonPush-260608-0-MCAP`：https://huggingface.co/datasets/RobotisAI/evButtonPush-260608-0-MCAP

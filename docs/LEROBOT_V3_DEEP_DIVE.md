@@ -297,3 +297,15 @@ VLA / ACT / Diffusion Policy 训练时通常一次读取“过去 `obs_horizon` 
 | `stats/{feat}/{min,max,mean,std,count}` | `list/float` | 框架固定 | 该轨迹内各特征的局部统计量（用于并行合并 `meta/stats.json`） |
 | `meta/episodes/chunk_index` & `file_index` | `int64` | 框架固定 | 本条索引记录自身所在的元数据分片位置 |
 
+---
+
+## 9. 参考资料与官方来源
+
+- **LeRobot 官方仓库与 v3.0 数据集规范**：https://github.com/huggingface/lerobot （核心实现见 `src/lerobot/datasets/lerobot_dataset.py` 与 `v30/` 迁移工具）
+- **Apache Parquet 二进制格式官方规范**：https://parquet.apache.org/docs/file-format/
+- **ISO/IEC 14496-12 (ISO BMFF / MP4 容器 Box 规范)**：https://mpeg.chiariglione.org/standards/mpeg-4/iso-base-media-file-format
+- **PyAV (FFmpeg Python 绑定) 官方文档**：https://pyav.basswood-io.com/docs/stable/
+- **本实验实测开源数据集**：
+  - `lerobot/pusht` (v3.0)：https://huggingface.co/datasets/lerobot/pusht
+  - `lerobot/svla_so100_pickplace` (v3.0 双摄真机)：https://huggingface.co/datasets/lerobot/svla_so100_pickplace
+

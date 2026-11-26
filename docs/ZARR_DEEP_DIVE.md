@@ -129,3 +129,13 @@ Zarr 本身只是通用科学计算数组格式（气象/生信也在用），�
 | `data/action` | `float32` `(25650, 2)` | `(161, 2)` | 自定义 | 2 维末端推杆目标位置 `(target_x, target_y)` |
 | `data/keypoint` | `float32` `(25650, 9, 2)` | `(161, 9, 2)` | 自定义 | T 型木块上的 9 个 2D 关键点坐标（PushT 几何任务专属观测） |
 | `data/n_contacts` | `float32` `(25650, 1)` | `(161, 1)` | 自定义 | 推杆与 T 型木块的接触点数量 |
+
+---
+
+## 6. 参考资料与官方来源
+
+- **Zarr v2 官方存储规范（`.zgroup` / `.zarray` / Chunk 协议）**：https://zarr-specs.readthedocs.io/en/latest/v2/v2.0.html
+- **C-Blosc 16 字节二进制头规范**：https://github.com/Blosc/c-blosc/blob/main/README_HEADER.rst
+- **Diffusion Policy 官方仓库（`ReplayBuffer` 实现）**：https://github.com/real-stanford/diffusion_policy （核心实现见 `diffusion_policy/common/replay_buffer.py`）
+- **本实验实测开源数据集**：
+  - Columbia Diffusion Policy `pusht.zip` (`pusht_cchi_v7_replay.zarr`)：https://diffusion-policy.cs.columbia.edu/data/training/pusht.zip

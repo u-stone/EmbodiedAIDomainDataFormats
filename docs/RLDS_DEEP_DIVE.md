@@ -147,3 +147,15 @@ RLDS 规定：**1 条 TFRecord 记录 = 1 条完整 Episode**，且扁平化后�
 | `steps/action/world_vector` | `FloatList` | `(T, 3)` `float32` | 自定义 | 世界坐标系下的末端平移增量 `(dx, dy, dz)` |
 | `steps/action/rotation_delta` | `FloatList` | `(T, 3)` `float32` | 自定义 | 末端旋转增量 `(droll, dpitch, dyaw)` |
 | `steps/action/terminate_episode` | `FloatList` | `(T,)` `float32` | 自定义 | 策略输出的终止动作标志 |
+
+---
+
+## 7. 参考资料与官方来源
+
+- **RLDS (Reinforcement Learning Datasets) 官方仓库**：https://github.com/google-research/rlds
+- **Open X-Embodiment (OXE) 官方项目与数据集清单**：https://robotics-transformer-x.github.io/
+- **TensorFlow TFRecord 官方二进制格式与 CRC32C 规范**：https://www.tensorflow.org/tutorials/load_data/tfrecord
+- **TensorFlow Datasets (TFDS) `features.json` / `dataset_info.json` 文档**：https://www.tensorflow.org/datasets/api_docs/python/tfds/core/DatasetInfo
+- **Protobuf Wire Format 编码规范**：https://protobuf.dev/programming-guides/encoding/
+- **本实验实测开源数据集**：
+  - `berkeley_cable_routing` (OXE GCS)：https://storage.googleapis.com/gresearch/robotics/berkeley_cable_routing/0.1.0/dataset_info.json

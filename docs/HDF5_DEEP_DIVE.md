@@ -151,3 +151,14 @@ HDF5 **本身不规定任何机器人字段名**，业内形成了几套主流�
 | `user_info/0/{clutch,engaged,grasp,intervene,reset_mode,valid}` | `bool` `(253,)` | 自定义 | SpaceMouse 遥操设备各类按键与离合器状态标志 |
 | `user_info/0/{dpos,rotation}` | `float64` `(253,3)/(253,3,3)` | 自定义 | SpaceMouse 原始 3D 位移增量与旋转矩阵 |
 | `user_info/0/{sensitivity,taskState,timestamp,zoom}` | `int64/float64` `(253,)` | 自定义 | 遥操灵敏度、任务状态机编号、设备时间戳与缩放参数 |
+
+---
+
+## 7. 参考资料与官方来源
+
+- **HDF5 官方二进制文件格式规范（Superblock / B-Tree / Heap）**：https://docs.hdfgroup.org/hdf5/develop/_f_m_t3.html
+- **h5py 官方文档**：https://docs.h5py.org/en/stable/
+- **robomimic 官方仓库与数据集规范文档**：https://robomimic.github.io/docs/datasets/overview.html （GitHub: https://github.com/ARISE-Initiative/robomimic）
+- **ACT / ALOHA HDF5 组织方式参考**：https://github.com/tonyzhaozh/act
+- **本实验实测开源数据集**：
+  - Stanford robomimic `v1.5/lift/ph/demo_v15.hdf5`：https://huggingface.co/datasets/robomimic/robomimic_datasets
