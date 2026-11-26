@@ -89,11 +89,61 @@ TFRecord 单条记录的精确物理帧布局（零 TensorFlow 依赖，见 [rld
 
 ---
 
-## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+## 6. 固定规范 vs 自定义扩展（字段级全拆解）
 
-| 层级 | 固定 / 自定义 | 具体内容与含义 |
+### 6.1 底层二进制与 TFDS 控制面（绝对固定）
+
+| 位置 | 固定要素 | 具体含义与系统作用 |
 | --- | --- | --- |
-| **TFRecord 二进制帧** | **完全固定** | `[uint64_le len][uint32_le masked_crc32c(len)][payload][uint32_le masked_crc32c(payload)]`，以及 `tf.train.Example` 的 Protobuf Wire 结构（`BytesList` / `FloatList` / `Int64List`）。 |
-| **TFDS 控制面文件** | **框架固定** | `dataset_info.json`（声明 `fileFormat`、`splits[].shardLengths`）与 `features.json`（声明逻辑 Tensor 维度、dtype、图像编码）。 |
-| **RLDS 顶层轨迹骨架** | **生态固定** | 每条 Record 代表 1 条完整 Episode，内部必须有 `steps/` 序列，且包含 `steps/is_first`、`steps/is_last`、`steps/is_terminal`、`steps/reward`（标准 RL 步进标记）。 |
-| **`observation` 与 `action` 子树** | **完全自定义** | 相机数量与命名（如 `berkeley_cable_routing` 自定义了 `image` / `top_image` / `wrist225_image` / `wrist45_image`）、图像编码（PNG 或 JPEG）、状态/动作字段拆分（如 `world_vector` + `rotation_delta` + `terminate_episode`）、是否预存 `natural_language_embedding`。 |
+| **TFRecord 单条帧格式** | `[uint64_le len][u32 masked_crc32c(len)][payload][u32 masked_crc32c(payload)]` | 顺序二进制日志帧；没有任何目录或偏移表，损坏任意 1 字节都会被 Castagnoli CRC32C 检出。 |
+| **Protobuf 载体格式** | `tf.train.Example` (`Features -> map<string, Feature>`) | 每个 Feature 只能是 `BytesList`、`FloatList`（packed `<f4`）或 `Int64List`（packed varint）三种一维扁平列表之一。 |
+| **`dataset_info.json`** | `name`、`version`、`fileFormat` (`"tfrecord"` / `"array_record"`)、`splits[].shardLengths` | 记录每个 split 的分片数与**每个分片内包含的 Episode 条数**（如 `shardLengths[4] = "12"`）。 |
+| **`features.json`** | TFDS 序列化树（`FeaturesDict` / `Sequence` / `Tensor` / `Image` / `Scalar`） | **不可或缺的逻辑 Schema**：告诉下游如何把一维 `FloatList`（如 9,216 个 float）reshape 成 `(T, 512)`。 |
+
+### 6.2 RLDS 领域骨架（生态固定 — Open X-Embodiment / OpenVLA 通用契约）
+
+RLDS 规定：**1 条 TFRecord 记录 = 1 条完整 Episode**，且扁平化后的 Key 必须以 `steps/` 为前缀，至少包含以下标准 RL 控制字段（长度均为轨迹步数 `T`）：
+- `steps/is_first` (`Int64List` 存 bool)：仅第 `0` 步为 `1`，标识轨迹起点；
+- `steps/is_last` (`Int64List` 存 bool)：仅第 `T-1` 步为 `1`，标识轨迹终点；
+- `steps/is_terminal` (`Int64List` 存 bool)：是否因终止条件结束（区别于超时截断）；
+- `steps/reward` (`FloatList`)：每步标量奖励；
+- `steps/discount`（可选 `FloatList`）：折扣因子。
+
+### 6.3 完全自定义层（随采集实验室与本体自由扩展）
+
+- **`steps/observation/*`（观测子树）**：
+  - **相机数量、命名与压缩格式**：完全自由。例如 `berkeley_cable_routing` 自定义了 4 路 `128×128` 无损 PNG（`image`、`top_image`、`wrist225_image`、`wrist45_image`），而 BridgeData V2 则是 `image_0..3` + JPEG 压缩。
+  - **本体状态**：命名不统一（有的叫 `robot_state` 7 维，有的叫 `state` 或 `proprio`）。
+  - **语言指令与 Embedding**：如 `natural_language_instruction`（UTF-8 `BytesList`）以及可选的预计算 512 维 `natural_language_embedding`（避免训练时在线跑文本编码器）。
+- **`steps/action` 或 `steps/action/*`（动作子树）**：
+  - 可以是单个扁平 `steps/action`（如 7 维末端增量），也可以拆成嵌套字典（如 `berkeley_cable_routing` 拆成了 `steps/action/world_vector (3)` + `steps/action/rotation_delta (3)` + `steps/action/terminate_episode (1)`）。
+- **Episode 级附加元数据（`episode_metadata/*`）**：如采集日期、场景 ID、成功率标签等，完全自定义。
+
+### 6.4 逐字段完整字典（基于真实样本 `berkeley_cable_routing`）
+
+#### A. 控制面文件 `dataset_info.json` 关键字段
+| 字段名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `name` | `str` | 框架固定 | 数据集注册名称（`"berkeley_cable_routing"`） |
+| `version` | `str` | 框架固定 | TFDS 语义版本号（`"0.1.0"`） |
+| `fileFormat` | `str` | 框架固定 | 底层存储容器格式（`"tfrecord"` 或 `"array_record"`） |
+| `splits[].name` | `str` | 框架固定 | 划分名称（`"train"` / `"test"`） |
+| `splits[].shardLengths` | `list[str]` | 框架固定 | 每个分片文件内包含的 Episode 数量列表（如 `shardLengths[4] = "12"`） |
+
+#### B. `.tfrecord` 内每条 Episode (`tf.train.Example`) 逐字段说明
+| Protobuf Key | Protobuf 类型 | 逻辑 Shape (`features.json`) | 属性 | 具体含义 |
+| --- | --- | --- | --- | --- |
+| `steps/is_first` | `Int64List` | `(T,)` `bool` | 生态固定 | 仅第 0 步为 `1`，标识轨迹首步 |
+| `steps/is_last` | `Int64List` | `(T,)` `bool` | 生态固定 | 仅第 `T-1` 步为 `1`，标识轨迹末步 |
+| `steps/is_terminal` | `Int64List` | `(T,)` `bool` | 生态固定 | 是否因任务终止而结束（区别于超时截断） |
+| `steps/reward` | `FloatList` | `(T,)` `float32` | 生态固定 | 每步标量奖励值 |
+| `steps/observation/image` | `BytesList` | `(T, 128, 128, 3)` `uint8` | 自定义 | 主视角 RGB 图像（本样本内嵌无损 PNG 字节流） |
+| `steps/observation/top_image` | `BytesList` | `(T, 128, 128, 3)` `uint8` | 自定义 | 顶部第三视角 RGB 图像（无损 PNG） |
+| `steps/observation/wrist225_image` | `BytesList` | `(T, 128, 128, 3)` `uint8` | 自定义 | 腕部 225° 视角 RGB 图像（无损 PNG） |
+| `steps/observation/wrist45_image` | `BytesList` | `(T, 128, 128, 3)` `uint8` | 自定义 | 腕部 45° 视角 RGB 图像（无损 PNG） |
+| `steps/observation/robot_state` | `FloatList` | `(T, 7)` `float32` | 自定义 | 机器人本体状态（末端位姿/关节状态） |
+| `steps/observation/natural_language_instruction` | `BytesList` | `(T,)` `string` | 生态约定 | 自然语言任务指令 UTF-8 文本 |
+| `steps/observation/natural_language_embedding` | `FloatList` | `(T, 512)` `float32` | 自定义 | 预计算的 512 维语言句向量（Universal Sentence Encoder） |
+| `steps/action/world_vector` | `FloatList` | `(T, 3)` `float32` | 自定义 | 世界坐标系下的末端平移增量 `(dx, dy, dz)` |
+| `steps/action/rotation_delta` | `FloatList` | `(T, 3)` `float32` | 自定义 | 末端旋转增量 `(droll, dpitch, dyaw)` |
+| `steps/action/terminate_episode` | `FloatList` | `(T,)` `float32` | 自定义 | 策略输出的终止动作标志 |

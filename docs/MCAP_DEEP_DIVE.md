@@ -79,11 +79,63 @@ flowchart LR
 
 ---
 
-## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+## 6. 固定规范 vs 自定义扩展（字段级全拆解）
 
-| 层级 | 固定 / 自定义 | 具体内容与含义 |
+### 6.1 MCAP 二进制容器层（绝对固定 — MCAP v0 规范定义）
+
+| 位置 | 固定要素 | 具体含义与系统作用 |
 | --- | --- | --- |
-| **MCAP 二进制容器** | **完全固定** | 首尾 8B Magic `\x89MCAP0\r\n`、Record Opcode（Header `0x01` / Footer `0x02` / Schema `0x03` / Channel `0x04` / Message `0x05` / Chunk `0x06`）、尾部 Summary Section 与 CRC32 校验。 |
-| **ROS 2 消息线协议 (`ros2` profile)** | **生态固定** | `CDR_LE` 4 字节封装头（`00 01 00 00`）与 4/8 字节自然对齐规则；标准消息结构（如 `sensor_msgs/msg/CompressedImage`、`sensor_msgs/msg/JointState`、`tf2_msgs/msg/TFMessage`）及其 `ros2msg` Schema 文本。 |
-| **Topic 命名、频率与传感器组合** | **完全自定义** | 采集哪些相机/关节/传感器、Topic 叫什么名字（如 `/camera/cam_top/...`、`/leader/joint_states`）、各通道采样频率（28 Hz vs 193 Hz）、Chunk 压缩方式（`none` / `zstd` / `lz4`）。 |
-| **外部 Sidecar 文件** | **可自定义** | `metadata.yaml` 为 `rosbag2` 标准生成；而 `episode_info.json`（任务指令/设备序列号）与 `robot.urdf`（运动学模型）属于采集团队/机器人厂商自定义的业务附带文件。 |
+| **首尾 Magic** | `89 4D 43 41 50 30 0D 0A` (`\x89MCAP0\r\n`) | 位于文件最前 8B 与最后 8B，快速校验文件是否完整写入未截断。 |
+| **Record 帧格式** | `[1B opcode][uint64_le record_len][record_body]` | 所有内容均以 Record 封装：`Header(0x01)`、`Footer(0x02)`、`Schema(0x03)`、`Channel(0x04)`、`Message(0x05)`、`Chunk(0x06)`、`ChunkIndex(0x08)`、`Statistics(0x0B)`。 |
+| **Message 固定头** | `channel_id(u16)` + `sequence(u32)` + `log_time(u64_ns)` + `publish_time(u64_ns)` + `data` | 每条传感器消息都强制携带纳秒级 `log_time`（落盘时间）与 `publish_time`（采集时间）。 |
+| **Footer 与 Summary** | 倒数 37 字节处 `0x02` Footer 指向 `summary_start` 与 `summary_crc32` | 让 Foxglove / Rerun / `mcap` SDK 无需扫描整个大文件即可一次性拿到全部 Schema、Channel 与 ChunkIndex。 |
+
+### 6.2 ROS 2 生态约定层（`profile="ros2"` 下的半固定规范）
+
+MCAP 本身语言与序列化无关（也可存 Protobuf / JSON / FlatBuffers），但在 ROS 2 `rosbag2` 生态下存在固定约定：
+- **封装头与对齐**：`message_encoding = "cdr"`，每条消息前 4 字节固定为封装头（`00 01 00 00` 表示 `CDR_LE` 小端），内部字段严格遵循 OMG CDR 4/8 字节自然对齐；
+- **自描述 Schema**：`schema_encoding = "ros2msg"`，文件内嵌完整 `.msg` 文本定义（如 `sensor_msgs/msg/CompressedImage`、`sensor_msgs/msg/JointState`、`tf2_msgs/msg/TFMessage`），使解析端无需安装 ROS 2 即可还原结构体；
+- **`metadata.yaml`**：`rosbag2` 录制目录标准伴生文件，固定记录 `version`、`storage_identifier: mcap`、`duration.nanoseconds`、`starting_time`、`message_count` 及各 Topic QoS。
+
+### 6.3 完全自定义层（随硬件平台、采集架构与团队自由定制）
+
+- **Topic 拓扑、命名与硬件频率**：
+  - 相机路数与 Topic 名完全由机器人配置决定（本样本为 `/camera/cam_top/...`、`/camera/cam_belly/...`、`/camera/cam_wrist/...`）；
+  - 遥操与本体状态 Topic 命名与关节自由度完全自定义（本样本 `/leader/joint_states` 7 维 vs `/joint_states` 16 维含底盘轮子+机械臂）；
+  - 是否单独录制 `/teleop/action_cmd` 控制指令 Topic（用于区分观测状态与目标指令）。
+- **传感器图像压缩与编码策略**：
+  - 既可以发未压缩 `sensor_msgs/msg/Image`（`rgb8`/`bgr8`）再开启 MCAP Chunk 级 `zstd` 压缩，也可以像本样本一样直接发 `CompressedImage`（JPEG）并关闭 Chunk 压缩（`compression = none`）以节省机载 CPU。
+- **MCAP Metadata / Attachment 与外部 Sidecar 文件**：
+  - MCAP 容器内部允许写入任意自定义 `Metadata` / `Attachment` Record；
+  - 外部目录中的 **`episode_info.json`**（如 `"task_instruction"`、`"device_serial"`、`"needs_review"`）和 **`robot.urdf`**（`omy_f3m` 运动学连杆/关节 XML）完全属于机器人厂商与采集团队的自定义工程扩展。
+
+### 6.4 逐字段完整字典（基于真实样本 `RobotisAI evButtonPush 0_0.mcap`）
+
+#### A. MCAP 二进制内部 Record 与 ROS 2 CDR 固定消息字段
+| 位置 / 消息类型 | 字段名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- | --- |
+| **MCAP Message 头** | `channel_id` | `uint16` | 规范固定 | 关联 Summary 中的 Topic 通道 ID |
+| **MCAP Message 头** | `sequence` | `uint32` | 规范固定 | 通道内消息序号 |
+| **MCAP Message 头** | `log_time` | `uint64` (ns) | 规范固定 | 录制器接收到消息并写入磁盘的纳秒时间戳 |
+| **MCAP Message 头** | `publish_time` | `uint64` (ns) | 规范固定 | 发布端时间戳（纳秒） |
+| **ROS 2 `std_msgs/Header`** | `stamp.sec` & `nanosec` | `int32` + `uint32` | 生态固定 | 传感器硬件/节点内嵌的采集时间戳 |
+| **ROS 2 `std_msgs/Header`** | `frame_id` | `string` | 生态固定 | 该数据所属的 TF 坐标系名称（如 `"cam_top_color_optical_frame"`） |
+| **`CompressedImage`** | `format` | `string` | 生态固定 | 压缩编码说明（本样本为 `"rgb8; jpeg compressed bgr8"`） |
+| **`CompressedImage`** | `data` | `uint8[]` | 生态固定 | 原始 JPEG/PNG 压缩字节流（`FF D8 FF E0`） |
+| **`JointState`** | `name` | `string[]` | 生态固定 | 关节名称列表（如 `omy_joint1..6`） |
+| **`JointState`** | `position` / `velocity` / `effort` | `float64[]` | 生态固定 | 关节角度(rad)/线位移(m)、角速度(rad/s)、力矩(Nm) |
+
+#### B. 录制 Topic 通道与外部 Sidecar 逐字段说明
+| 文件 / Topic 路径 | Schema / 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `/camera/cam_top/color/image_raw/compressed` | `CompressedImage` (28.5 Hz) | 自定义 | 顶部主视角 640×480 JPEG 图像流 |
+| `/camera/cam_belly/color/image_raw/compressed` | `CompressedImage` (28.1 Hz) | 自定义 | 机身腹部视角 640×480 JPEG 图像流 |
+| `/camera/cam_wrist/color/image_rect_raw/compressed` | `CompressedImage` (30.0 Hz) | 自定义 | 腕部去畸变视角 640×480 JPEG 图像流 |
+| `/joint_states` | `JointState` (193.4 Hz, 16 维) | 自定义 | 整机全关节状态（4 轮转向/驱动 8 维 + 颈/头 2 维 + `omy_joint1..6` 6 维） |
+| `/leader/joint_states` | `JointState` (194.0 Hz, 7 维) | 自定义 | 遥操作主手关节状态（`joint1..6` + `rh_r1_joint` 夹爪） |
+| `/tf` | `tf2_msgs/TFMessage` (38.8 Hz) | 生态约定 | 机器人各连杆坐标系之间的实时 3D 刚体变换树 |
+| `metadata.yaml` | `rosbag2_bagfile_information` (v9) | 生态固定 | `duration.nanoseconds`、`starting_time`、`message_count`、`topics_with_message_count` |
+| `episode_info.json` → `task_instruction` | `str` | 自定义 | 任务自然语言指令（`"push the elevator call button"`） |
+| `episode_info.json` → `robot_type` & `device_serial` | `str` | 自定义 | 机器人型号（`"frontier_omy_f3m"`）与设备序列号（`"gaemi-1-g50-0203"`） |
+| `episode_info.json` → `episode_index` / `fps` / `needs_review` | `int/bool` | 自定义 | 轨迹编号、目标抽帧帧率（`15`）、人工质检标记 |
+| `robot.urdf` | XML (`<link>`/`<joint>`) | 自定义 | 17 个连杆与 16 个关节的物理尺寸、限位与运动学树 |

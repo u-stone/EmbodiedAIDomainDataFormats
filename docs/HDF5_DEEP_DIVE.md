@@ -86,11 +86,68 @@ flowchart TD
 
 ---
 
-## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+## 6. 固定规范 vs 自定义扩展（字段级全拆解）
 
-| 层级 | 固定 / 自定义 | 具体内容与含义 |
+### 6.1 HDF5 物理层规范（绝对固定 — 由 `libhdf5` 二进制规格定义）
+
+| 位置 | 固定要素 | 具体含义与系统作用 |
 | --- | --- | --- |
-| **HDF5 二进制格式** | **完全固定** | `\x89HDF\r\n\x1a\n` Magic、Superblock、内部 B-Tree 与 Heap 索引结构、`Group / Dataset / Attribute` 三元抽象。 |
-| **robomimic 顶层分组** | **生态约定（非 HDF5 强制）** | `/data/demo_0`、`/data/demo_1`... 按 Demo 编号分组，`/mask/train` & `/mask/valid` 存划分索引，`/data.attrs["env_args"]` 存环境 JSON。 |
-| **Demo 内部子字段与属性** | **高度自定义** | 观测/动作键名在不同项目中差异极大（robomimic 用 `actions` + `states` + `obs/agentview_image` + `controller_info/*` + `attrs["model_file"]` MuJoCo XML；而 ALOHA 直接把每条轨迹存成独立 `.hdf5`，用 `observations/qpos` + `observations/images/cam_high`）。 |
-| **Chunk 与压缩参数** | **可自定义** | 每个 Dataset 可独立选择 `contiguous`（零解压微秒切片）或 `chunks=(1, H, W, 3)` + `gzip`/`lzf` 压缩。 |
+| **文件头 Superblock** | 8B Magic `\x89HDF\r\n\x1a\n` + Version (`0/1/2/3`) + `size_of_offsets` + `size_of_lengths` + `eof_address` | 位于文件偏移 `0`（或 512 倍数），指向 Root Group 的符号表与 B-Tree 根节点。 |
+| **三元逻辑模型** | `Group`（目录节点）+ `Dataset`（多维类型化数组）+ `Attribute`（挂载在节点上的小规模键值对） | 所有数据与元数据均自包含在单个 `.hdf5` 二进制文件内，无外部 sidecar 文件。 |
+| **存储布局开关** | `contiguous`（连续线性块）vs `chunked`（分块 B-Tree + 可选 `gzip`/`lzf` 压缩） | 物理访问模式在创建 Dataset 时固定：连续布局可直接 `ptr + idx * stride` 微秒切片。 |
+
+### 6.2 具身智能生态约定（半固定 — 不同框架各立门户，无统一标准）
+
+HDF5 **本身不规定任何机器人字段名**，业内形成了几套主流但互不兼容的约定：
+
+1. **robomimic / mimicgen 风格**（本样本 `demo_v15.hdf5` 采用）：
+   - **单文件多轨迹**：`/data/demo_0`、`/data/demo_1`... 每个 Group 代表一条轨迹；
+   - **训练划分分组**：`/mask/train`、`/mask/valid`（以及 `20_percent` 等子集），存字符串数组列出 Demo 名称；
+   - **环境属性**：`/data.attrs["env_args"]` 存 JSON 字符串（含 `env_name`、`control_freq`、控制器配置）；`/data.attrs["total"]` 存总步数；
+   - **轨迹必备数组**：`actions (T, A)`、`states (T, S)`（仿真器底层物理状态向量）、`rewards (T,)`、`dones (T,)`、`obs/*`（观测分组）；
+   - **仿真回放属性**：`/data/demo_i.attrs["model_file"]` 存完整 **MuJoCo XML**，`/data/demo_i.attrs["num_samples"]` 存步数。
+2. **ALOHA / ACT 风格**（真机双臂常见布局）：
+   - **一轨迹一文件**：`episode_0.hdf5`、`episode_1.hdf5`...
+   - 顶层直接是 `/action (T, 14)`、`/observations/qpos (T, 14)`、`/observations/qvel (T, 14)`、`/observations/images/<cam_name> (T, H, W, 3)`（或变长 JPEG 字节流）。
+
+### 6.3 完全自定义层（随实验与采集平台自由增删）
+
+- **高频控制器诊断与遥操日志**：例如 `demo_v15.hdf5` 额外自建了 `/data/demo_0/controller_info/*`（253Hz 底层控制计数器、遥操末端位置/旋转矩阵）、`/data/demo_0/user_info/0/*`（空间鼠标离合器 `clutch`、干预标志 `intervene`）、`policy_acting`、`user_acting`。
+- **相机命名与压缩方式**：`agentview_image` / `robot0_eye_in_hand_image` / `cam_high` / `cam_left_wrist` 等完全自定义；既可存原始 `uint8 (T, H, W, 3)`（配 `chunks=(1, H, W, 3)` + `gzip`），也可存每帧 JPEG 字节数组。
+- **自定义 Attribute**：任何实验作者都可以在 Root、`/data` 或 `/data/demo_i` 上挂载任意字符串/数值属性（如 `sim=True`、`fps=20`、`language_instruction`）。
+
+### 6.4 逐字段完整字典（基于真实样本 `robomimic demo_v15.hdf5`）
+
+#### A. Group Attributes（自包含非二进制元数据）
+| 挂载路径 | 属性名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- | --- |
+| `/data` | `env_args` | `str` (JSON) | 生态约定 | 完整仿真环境配置 JSON（`env_name="Lift"`, `control_freq=20`, `robots=["Panda"]` 等） |
+| `/data` | `total` | `int` | 生态约定 | 全文件所有 Demo 的总步数之和（`9666`） |
+| `/data/demo_i` | `model_file` | `str` (XML) | 生态约定 | 该 Demo 对应的完整 37.55 KB MuJoCo 物理仿真 XML 模型 |
+| `/data/demo_i` | `num_samples` | `int` | 生态约定 | 该 Demo 的时间步长度（如 `demo_0` 为 `59`） |
+
+#### B. `/mask` 分组 Dataset
+| 路径 | 类型 / Shape | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `/mask/train` & `/mask/valid` | `bytes` `(180,)` / `(20,)` | 生态约定 | 官方训练/验证集划分的 Demo 名称列表（如 `"demo_0"`） |
+| `/mask/20_percent*` & `/mask/50_percent*` | `bytes` | 可自定义 | 20% / 50% 少样本基准子集划分列表 |
+
+#### C. `/data/demo_0` 内部 Dataset 逐字段说明
+| 相对路径 | 类型 / Shape | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `actions` | `float64` `(59, 7)` | 生态约定 | 机器人末端 7 维控制动作（位置增量 + 姿态增量 + 夹爪） |
+| `states` | `float64` `(59, 32)` | 生态约定 | MuJoCo 底层完整物理状态向量（`qpos` + `qvel` + 物体位姿，用于精确状态重置） |
+| `obs/*`（有视觉集时） | `uint8` `(T, H, W, 3)` | 生态约定 | 相机观测图像（如 `agentview_image`）与低维观测（`robot0_eef_pos` 等） |
+| `interventions` | `bool` `(59, 1)` | 自定义 | 人机协同干预事件标志（DAgger / HG-DAgger 实验字段） |
+| `policy_acting` | `bool` `(59,)` | 自定义 | 当前步是否由策略网络接管控制 |
+| `user_acting` | `bool` `(59, 1)` | 自定义 | 当前步是否由人类遥操作员接管控制 |
+| `controller_info/counters` | `int64` `(253,)` | 自定义 | 底层 253Hz 控制器高频采样计数器 |
+| `controller_info/enabled` | `bool` `(253, 1)` | 自定义 | 控制器使能状态 |
+| `controller_info/user_timestamps` | `float64` `(253, 1)` | 自定义 | 遥操作输入端高频时间戳 |
+| `controller_info/robot_controls/action` | `float64` `(59, 7)` | 自定义 | 下发给机器人控制器的实际动作向量 |
+| `controller_info/robot_controls/counters` | `int64` `(59,)` | 自定义 | 控制帧对齐计数器 |
+| `controller_info/teleop_commands/arm0/{position,rotation,gripper}` | `float64` `(59,3)/(59,3,3)/(59,1)` | 自定义 | 遥操端发出的原始目标位置、3×3 旋转矩阵与夹爪指令 |
+| `controller_info/teleop_controls/arm0/{position,rotation,gripper}` | `float64/32` `(59,3)/(59,1)` | 自定义 | 遥操控制器内部解算后的控制量 |
+| `user_info/0/{clutch,engaged,grasp,intervene,reset_mode,valid}` | `bool` `(253,)` | 自定义 | SpaceMouse 遥操设备各类按键与离合器状态标志 |
+| `user_info/0/{dpos,rotation}` | `float64` `(253,3)/(253,3,3)` | 自定义 | SpaceMouse 原始 3D 位移增量与旋转矩阵 |
+| `user_info/0/{sensitivity,taskState,timestamp,zoom}` | `int64/float64` `(253,)` | 自定义 | 遥操灵敏度、任务状态机编号、设备时间戳与缩放参数 |

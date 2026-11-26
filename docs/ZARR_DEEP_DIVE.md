@@ -77,11 +77,55 @@ ver=2 lz=1 flags=0x94 typesize=4 | nbytes=17,805,312 (16.98 MB) | blocksize=262,
 
 ---
 
-## 5. 固定规范 vs 自定义扩展（Fixed vs Custom）
+## 5. 固定规范 vs 自定义扩展（字段级全拆解）
 
-| 层级 | 固定 / 自定义 | 具体内容与含义 |
+### 5.1 Zarr v2 存储规范（绝对固定 — Zarr 协议强制要求）
+
+| 位置 | 固定要素 | 具体含义与系统作用 |
 | --- | --- | --- |
-| **Zarr v2 存储规范** | **完全固定** | `.zgroup` / `.zarray` / `.zattrs` JSON 元数据文件名与必填字段（`shape`、`chunks`、`dtype`、`compressor`、`order`、`zarr_format=2`）；每个 Chunk 独立成文件（如 `0.0.0.0`），以及 16 字节 Blosc 二进制头格式。 |
-| **Diffusion Policy ReplayBuffer 骨架** | **生态约定** | 顶层分为 `data/`（所有轨迹首尾拼接的扁平全局数组）和 `meta/episode_ends`（1D `int64` 累积步数边界向量）。 |
-| **数组字段名与数据类型** | **完全自定义** | `data/` 下的数组名、数量与 dtype 由任务决定（如 PushT 有 `img (float32)`、`state (float32)`、`action (float32)`、`keypoint`、`n_contacts`；其他任务可换成 `cam_0`、`qpos` 等）。 |
-| **Chunk 大小与 Blosc 压缩器** | **可自定义** | `chunks` 形状（如 `[161, 96, 96, 3]` vs `[1, 96, 96, 3]`）与压缩算法（`zstd` / `lz4`、`bitshuffle` / `byteshuffle`、`clevel`）在创建时自由指定。 |
+| **Group 元数据** | `.zgroup` (`{"zarr_format": 2}`) | 标识当前目录是一个 Zarr Group（如根目录、`data/`、`meta/`）。 |
+| **Array 元数据** | `.zarray` JSON（必填：`shape`、`chunks`、`dtype`、`compressor`、`order`、`fill_value`、`filters`、`zarr_format`） | 描述多维数组的逻辑维度、物理分块形状、字节序（如 `"<f4"` / `"<i8"`）和压缩器配置；读取时按 `index // chunk_dim` 直接映射到文件名。 |
+| **Attribute 元数据** | `.zattrs` JSON | 可为空 `{}`，用于挂载用户自定义属性。 |
+| **Chunk 物理文件命名** | `<c0>.<c1>...`（默认 `.` 分隔，v2 可配 `dimension_separator: "/"`） | 每个分块独立落盘（如 `data/img/0.0.0.0`），天然实现多进程/对象存储无锁并发。 |
+| **Blosc 16B 二进制头** | `<BBBBIII` (`version`, `versionlz`, `flags`, `typesize`, `nbytes`, `blocksize`, `cbytes`) | 使用 `numcodecs.Blosc` 时每个 Chunk 文件头部固定为这 16 字节，用于校验与多块并行解压。 |
+
+### 5.2 Diffusion Policy ReplayBuffer 骨架（生态约定）
+
+Zarr 本身只是通用科学计算数组格式（气象/生信也在用），具身智能领域广泛沿用 **Diffusion Policy `ReplayBuffer`** 约定：
+- **`data/` Group**：把全部 `N` 条轨迹沿时间轴首尾拼接成连续扁平数组（第一维长度等于总步数 `total_steps`，如 `25650`）；
+- **`meta/episode_ends` Array**：固定为 1D `int64`（`"<i8"`）数组，长度为轨迹总数（`206`），第 `i` 个元素表示第 `i` 条轨迹在 `data/` 全局数组中的**结束行号（开区间右端点）**（如 `[161, 279, 420, ...]`）。
+  - 第 `i` 条轨迹的切片区间即为 `[episode_ends[i-1], episode_ends[i])`（`i=0` 时起点为 `0`），从而在不切碎物理文件的前提下实现零拷贝虚拟分轨。
+
+### 5.3 完全自定义层（随任务与调优需求自由设定）
+
+- **`data/` 下的数组键名、维度与 `dtype`**：
+  - 在 `pusht_cchi_v7_replay.zarr` 中自定义了 `img (25650, 96, 96, 3) float32`、`state (25650, 5) float32`、`action (25650, 2) float32`、`keypoint (25650, 9, 2) float32`、`n_contacts (25650, 1) float32`；
+  - 换成真机双臂任务时，开发者可自由改为 `cam_left_rgb (uint8)`、`cam_right_rgb (uint8)`、`robot_eef_pose`、`gripper_width` 等。
+- **物理分块 `chunks` 粒度**：
+  - 完全由创建者决定（本样本错设为 `161`，导致 `161x` 读放大；若追求高频随机单帧读，通常自定义为 `[1, H, W, 3]` 或 `[4, H, W, 3]`）。
+- **压缩器与 Filter 参数**：
+  - `cname` 可选 `lz4`（解压极快，适合训练热数据）、`zstd`（高压缩比，适合存储），`shuffle` 可选 `BITSHUFFLE (2)` / `BYTESHUFFLE (1)` / `NOSHUFFLE (0)`，甚至可配合 JPEG 图像编码器存变长字节。
+
+### 5.4 逐字段完整字典（基于真实样本 `pusht_cchi_v7_replay.zarr`）
+
+#### A. 控制面 JSON 文件（`.zgroup` / `.zarray`）逐字段说明
+| 文件 / 字段名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `.zgroup` → `zarr_format` | `int` | 规范固定 | Zarr 协议版本号（固定为 `2`） |
+| `.zarray` → `shape` | `list[int]` | 规范固定 | 逻辑数组完整维度（如 `[25650, 96, 96, 3]`） |
+| `.zarray` → `chunks` | `list[int]` | 规范固定(值可配) | 单个物理 Chunk 文件的维度切片（如 `[161, 96, 96, 3]`） |
+| `.zarray` → `dtype` | `str` | 规范固定(值可配) | NumPy 字节序与类型描述符（`"<f4"`=小端 float32，`"<i8"`=小端 int64） |
+| `.zarray` → `compressor` | `dict/null` | 规范固定(值可配) | 压缩器配置（`id="blosc"`, `cname="zstd"`, `clevel=5`, `shuffle=2`, `blocksize=0`） |
+| `.zarray` → `order` | `str` | 规范固定 | 内存/磁盘布局顺序（`"C"` 行优先 或 `"F"` 列优先） |
+| `.zarray` → `fill_value` | `number/null` | 规范固定 | 未初始化 Chunk 的默认填充值（`0.0` / `0`） |
+| `.zarray` → `filters` | `list/null` | 规范固定 | 预编码过滤器链（本样本为 `null`） |
+
+#### B. `meta/` 与 `data/` 数组逐字段说明
+| 数组路径 | Dtype & Shape | Chunks | 属性 | 具体含义 |
+| --- | --- | --- | --- | --- |
+| `meta/episode_ends` | `int64` `(206,)` | `(208,)` | 生态固定 | 每条轨迹在扁平全局数组中的结束行号（开区间右端点：`[161, 279, 420, ...]`） |
+| `data/img` | `float32` `(25650, 96, 96, 3)` | `(161, 96, 96, 3)` | 自定义 | 顶视角 96×96 RGB 渲染图像（注意：本样本存为 `float32` 而非 `uint8`） |
+| `data/state` | `float32` `(25650, 5)` | `(161, 5)` | 自定义 | 5 维本体与物体状态：`[agent_x, agent_y, block_x, block_y, block_angle]` |
+| `data/action` | `float32` `(25650, 2)` | `(161, 2)` | 自定义 | 2 维末端推杆目标位置 `(target_x, target_y)` |
+| `data/keypoint` | `float32` `(25650, 9, 2)` | `(161, 9, 2)` | 自定义 | T 型木块上的 9 个 2D 关键点坐标（PushT 几何任务专属观测） |
+| `data/n_contacts` | `float32` `(25650, 1)` | `(161, 1)` | 自定义 | 推杆与 T 型木块的接触点数量 |

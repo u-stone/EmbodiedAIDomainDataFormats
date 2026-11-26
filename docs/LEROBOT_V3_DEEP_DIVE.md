@@ -200,13 +200,100 @@ VLA / ACT / Diffusion Policy 训练时通常一次读取“过去 `obs_horizon` 
 
 ---
 
-## 8. 固定规范 vs 自定义扩展（Fixed vs Custom）
+## 8. 固定规范 vs 自定义扩展（字段级全拆解）
 
-| 层级 | 固定 / 自定义 | 具体内容与含义 |
+### 8.1 二进制容器与目录骨架（绝对固定 — 违背即无法解析）
+
+| 位置 | 固定要素 | 具体含义与系统作用 |
 | --- | --- | --- |
-| **底层容器层** | **完全固定** | **Parquet**（`PAR1` Magic、RowGroup、Thrift Footer）与 **MP4 / ISO BMFF**（`ftyp`/`mdat`/`moov`、`stbl` 寻址表、`GOP=2` 关键帧要求、CFR 恒定帧率）。 |
-| **v3.0 目录与索引骨架** | **框架固定** | `meta/info.json`（含 `codebase_version="v3.0"`、`fps`、`data_path`/`video_path` 模板）、`meta/stats.json`、`meta/tasks.parquet`、`meta/episodes/chunk-XXX/file-XXX.parquet`（含 `episode_index`、`dataset_from_index`/`to_index`、`videos/*/from_timestamp`/`to_timestamp`）。 |
-| **必备系统列** | **框架固定** | Parquet 数据表中必须包含 `episode_index`、`frame_index`、`timestamp`、`index`、`task_index`（用于全局行号与时间对齐）。 |
-| **观测与动作字段 (`features`)** | **可自定义（有命名约定）** | 相机名（如 `observation.image` vs `observation.images.top` + `observation.images.wrist`）、状态维度与物理含义（如 2 维平面坐标 vs 6 维关节角）、动作空间与辅助列（如 `next.reward`、`next.done`、`next.success`），均在 `meta/info.json` 的 `features` 字典中自由声明。 |
-| **视频编码器与分片上限** | **可配置** | 可选 `libdav1d (AV1)` / `h264` / `hevc`，以及单个 Parquet/MP4 分片大小上限（默认 ~100MB / ~200MB）。 |
+| **目录命名规范** | `meta/`、`data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet`、`videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4` | 物理分片路径模板（默认每 1000 个 file 建一个 chunk 目录）；虽然模板字符串写在 `info.json` 里，但 `lerobot` 生态工具默认遵循此层级。 |
+| **Parquet 物理结构** | Magic `PAR1`（首尾 4B）+ Thrift `FileMetaData` Footer + `footer_len(u32_le)` | Apache Parquet 标准列存格式；支持 RowGroup 级 `Min/Max` 统计实现 Predicate Pushdown。 |
+| **MP4 / ISO BMFF** | `ftyp` + `mdat` + `moov -> trak -> mdia -> minf -> stbl (stts/stss/stsc/stsz/stco)` | 标准 MP4 容器；LeRobot 额外强制 **CFR 恒定帧率** 与 **极小 GOP（通常 `g=2, bf=0`）** 写入 `stss`，否则随机抽帧 CPU 会打满。 |
+
+### 8.2 控制面元数据与必备系统列（框架固定 — v3.0 协议强制要求）
+
+1. **`meta/info.json`**（全局 Schema 清单，固定核心键）：
+   - `codebase_version`: 必须为 `"v3.0"`（区分 v2.1 的标志）。
+   - `fps`: 全局统一帧率（如 `10` 或 `30`），所有视频与时间槽均以此为基准。
+   - `total_episodes` / `total_frames` / `total_tasks`: 全局计数闭环校验基准。
+   - `data_path` / `video_path`: 分片路径格式化模板。
+   - `features`: 字典，声明每个特征的 `dtype`、`shape`、`names`；其中视频列固定包含 `info` 子字典（`video.fps`、`video.codec`、`video.pix_fmt`、`has_audio`）。
+2. **`meta/episodes/chunk-XXX/file-XXX.parquet`**（v3.0 新增的核心关系型索引表，固定核心列）：
+   - `episode_index` (`int64`)：全局轨迹编号。
+   - `data/chunk_index`、`data/file_index` (`int64`)：该轨迹所在的 Parquet 分片坐标。
+   - `dataset_from_index`、`dataset_to_index` (`int64`)：**跨分片全局行号**半开区间 `[from, to)`，长度 `length = to - from`。
+   - `videos/{video_key}/chunk_index`、`file_index`、`from_timestamp`、`to_timestamp`：该轨迹在共享 MP4 中的精确时间槽（如 ep1 在 `[16.1s, 27.9s]`）。
+   - `stats/{feature}/{min,max,mean,std,count}`：单条轨迹的局部统计量（用于并行分片后通过 Chan/Welford 无损合并）。
+   - `tasks` (`list<string>`)：该轨迹对应的任务描述列表。
+3. **`meta/tasks.parquet` & `meta/stats.json`**：
+   - `tasks.parquet` 映射 `task_index (int64)` ↔ 任务文本（注意实测中文本常存储在 Pandas 索引列 `__index_level_0__`）；
+   - `stats.json` 存储全数据集归一化参数（推荐包含 `q01`/`q99`，但早期转换集如 `lerobot/pusht` 仅含 `min`/`max`/`mean`/`std`/`count`）。
+4. **`data/*.parquet` 必备 5 个系统列**（每帧一行，不可缺少）：
+   - `episode_index` (`int64`)：所属轨迹 ID；
+   - `frame_index` (`int64`)：轨迹内局部帧号（`0 .. length-1`）；
+   - `timestamp` (`float32`)：轨迹内相对时间戳（`frame_index / fps`）；
+   - `index` (`int64`)：全数据集全局行号（`0 .. total_frames-1`）；
+   - `task_index` (`int64`)：关联 `meta/tasks.parquet` 的外键。
+
+### 8.3 完全自定义与可配置层（随机器人/任务自由变化）
+
+- **视觉特征名 (`dtype: "video"`)**：
+  - 单视角可用 `observation.image`（如 `pusht` `96×96`），多视角通常按 `observation.images.<cam_name>` 命名（如 `svla_so100_pickplace` 自定义了 `observation.images.top` 和 `observation.images.wrist`，均为 `480×640×3`）。
+  - 注意：`observation.images.*` 图像像素**不存储在 Parquet 中**，仅在 `info.json` 声明，实际数据按 `video_path` 存在 `.mp4` 里。
+- **状态与动作向量 (`observation.state` / `action`)**：
+  - 维度、物理量纲与 `names` 完全自定义：如 `pusht` 是 2 维平面坐标 `['motor_0', 'motor_1']`；SO-100 是 6 维关节角；双臂 ALOHA 则是 14 维。
+- **RL / 扩展标记列**：
+  - 如 `next.reward`、`next.done`、`next.success`（`pusht` 中存在，而真机遥操集 `svla_so100_pickplace` 中不存在）。
+- **编码与分片超参**：
+  - 编码器可选 `libsvtav1 (AV1)`、`h264`、`hevc`，`pix_fmt` 通常 `yuv420p`；单个 Parquet/MP4 分片大小上限（默认 ~100 MB / ~200 MB）可在采集/转换时自定义。
+
+### 8.4 逐字段完整字典（基于真实样本 `lerobot/pusht` 与 `svla_so100_pickplace`）
+
+#### A. `meta/info.json` 逐字段说明
+| 字段名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `codebase_version` | `str` | 框架固定 | 数据集格式版本号，v3.0 固定为 `"v3.0"` |
+| `robot_type` | `str` | 可自定义 | 机器人本体型号（如 `"so100"` / `"aloha"` / `"unknown"`） |
+| `total_episodes` | `int` | 框架固定 | 全数据集总轨迹条数（`pusht=206`, `so100=50`） |
+| `total_frames` | `int` | 框架固定 | 全数据集总时间步帧数（`pusht=25650`, `so100=19631`） |
+| `total_tasks` | `int` | 框架固定 | 不同语言任务指令的总数 |
+| `chunks_size` | `int` | 框架可配 | 每个 `chunk-XXX` 目录最多存放的分片文件数（默认 `1000`） |
+| `data_files_size_in_mb` | `int` | 框架可配 | 单个 Parquet 分片体积上限（默认 `100` MB） |
+| `video_files_size_in_mb` | `int` | 框架可配 | 单个 MP4 分片体积上限（默认 `200` MB） |
+| `fps` | `int/float` | 框架固定 | 全局统一采样帧率（`pusht=10`, `so100=30`） |
+| `splits` | `dict` | 可自定义 | 数据集划分区间（如 `{"train": "0:206"}`） |
+| `data_path` | `str` | 框架固定 | Parquet 分片路径模板 |
+| `video_path` | `str` | 框架固定 | MP4 分片路径模板 |
+| `features` | `dict` | 半固定 | 所有列特征的 Schema 字典（含 `dtype`/`shape`/`names`/`info`） |
+
+#### B. `data/chunk-XXX/file-XXX.parquet` 逐字段说明
+| 字段名 | 类型 / Shape | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `observation.state` | `float32[D]` | 约定+自定义 | 机器人本体状态向量（`pusht` 为 2 维平面位置；`so100` 为 6 维关节角） |
+| `action` | `float32[A]` | 约定+自定义 | 执行动作/目标控制指令（`pusht` 为 2 维目标位置；`so100` 为 6 维目标关节角） |
+| `episode_index` | `int64` | 框架固定 | 所属轨迹编号（`0 .. total_episodes-1`） |
+| `frame_index` | `int64` | 框架固定 | 当前轨迹内的局部帧序号（`0 .. length-1`） |
+| `timestamp` | `float32` | 框架固定 | 当前轨迹内的相对时间（秒，`frame_index / fps`） |
+| `index` | `int64` | 框架固定 | 跨分片的全局行号（`0 .. total_frames-1`） |
+| `task_index` | `int64` | 框架固定 | 关联 `meta/tasks.parquet` 的任务外键 ID |
+| `next.reward` | `float32` | 可自定义 | 单步即时奖励（仅 RL/仿真集 `pusht` 有，真机集 `so100` 无） |
+| `next.done` | `bool` | 可自定义 | 轨迹是否结束标志（仅 `pusht` 有） |
+| `next.success` | `bool` | 可自定义 | 任务是否成功完成标志（仅 `pusht` 有） |
+
+#### C. `meta/episodes/chunk-XXX/file-XXX.parquet` 逐字段说明
+| 字段名 | 类型 | 属性 | 具体含义 |
+| --- | --- | --- | --- |
+| `episode_index` | `int64` | 框架固定 | 轨迹唯一 ID |
+| `tasks` | `list[str]` | 框架固定 | 该轨迹对应的自然语言任务文本列表 |
+| `length` | `int64` | 框架固定 | 该轨迹包含的总步数（`= dataset_to_index - dataset_from_index`） |
+| `data/chunk_index` | `int64` | 框架固定 | 该轨迹所在的 `data/chunk-XXX` 目录编号 |
+| `data/file_index` | `int64` | 框架固定 | 该轨迹所在的 `file-XXX.parquet` 文件编号 |
+| `dataset_from_index` | `int64` | 框架固定 | 该轨迹在全局数据集中的起始行号（闭区间） |
+| `dataset_to_index` | `int64` | 框架固定 | 该轨迹在全局数据集中的结束行号（开区间） |
+| `videos/{cam}/chunk_index` | `int64` | 框架固定 | 该轨迹某路相机所在的 `videos/{cam}/chunk-XXX` 编号 |
+| `videos/{cam}/file_index` | `int64` | 框架固定 | 该轨迹某路相机所在的 `file-XXX.mp4` 编号 |
+| `videos/{cam}/from_timestamp` | `float64` | 框架固定 | 该轨迹在共享 MP4 中的起始时间戳（秒） |
+| `videos/{cam}/to_timestamp` | `float64` | 框架固定 | 该轨迹在共享 MP4 中的结束时间戳（秒） |
+| `stats/{feat}/{min,max,mean,std,count}` | `list/float` | 框架固定 | 该轨迹内各特征的局部统计量（用于并行合并 `meta/stats.json`） |
+| `meta/episodes/chunk_index` & `file_index` | `int64` | 框架固定 | 本条索引记录自身所在的元数据分片位置 |
 
