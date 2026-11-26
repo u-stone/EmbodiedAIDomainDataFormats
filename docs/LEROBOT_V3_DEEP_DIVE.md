@@ -198,3 +198,15 @@ VLA / ACT / Diffusion Policy 训练时通常一次读取“过去 `obs_horizon` 
   - `data/real/lerobot_v3_pusht/data/chunk-000/file-000.parquet`：开头 `0x00` 为 `50 41 52 31 (PAR1)`，末尾最后 8 字节为 4B `footer_len` + `PAR1`。
   - `data/real/lerobot_v3_pusht/videos/observation.image/chunk-000/file-000.mp4`：`0x00` 为 `ftyp isom av01`，跳转偏移 `6735984 (0x66C7B0)` 即为 `moov` 起始处。
 
+---
+
+## 8. 固定规范 vs 自定义扩展（Fixed vs Custom）
+
+| 层级 | 固定 / 自定义 | 具体内容与含义 |
+| --- | --- | --- |
+| **底层容器层** | **完全固定** | **Parquet**（`PAR1` Magic、RowGroup、Thrift Footer）与 **MP4 / ISO BMFF**（`ftyp`/`mdat`/`moov`、`stbl` 寻址表、`GOP=2` 关键帧要求、CFR 恒定帧率）。 |
+| **v3.0 目录与索引骨架** | **框架固定** | `meta/info.json`（含 `codebase_version="v3.0"`、`fps`、`data_path`/`video_path` 模板）、`meta/stats.json`、`meta/tasks.parquet`、`meta/episodes/chunk-XXX/file-XXX.parquet`（含 `episode_index`、`dataset_from_index`/`to_index`、`videos/*/from_timestamp`/`to_timestamp`）。 |
+| **必备系统列** | **框架固定** | Parquet 数据表中必须包含 `episode_index`、`frame_index`、`timestamp`、`index`、`task_index`（用于全局行号与时间对齐）。 |
+| **观测与动作字段 (`features`)** | **可自定义（有命名约定）** | 相机名（如 `observation.image` vs `observation.images.top` + `observation.images.wrist`）、状态维度与物理含义（如 2 维平面坐标 vs 6 维关节角）、动作空间与辅助列（如 `next.reward`、`next.done`、`next.success`），均在 `meta/info.json` 的 `features` 字典中自由声明。 |
+| **视频编码器与分片上限** | **可配置** | 可选 `libdav1d (AV1)` / `h264` / `hevc`，以及单个 Parquet/MP4 分片大小上限（默认 ~100MB / ~200MB）。 |
+

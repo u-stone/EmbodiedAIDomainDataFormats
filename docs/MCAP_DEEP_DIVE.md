@@ -76,3 +76,14 @@ flowchart LR
   - 打开 `data/real/mcap_robotis_button_push/0_0.mcap`：
     - 文件首 8 字节与尾 8 字节均为 `89 4D 43 41 50 30 0D 0A`（`\x89MCAP0\r\n`）；
     - 倒数 37 字节处是 `02`（Footer Opcode），紧跟 `summary_start = 161,685,840`。
+
+---
+
+## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+
+| 层级 | 固定 / 自定义 | 具体内容与含义 |
+| --- | --- | --- |
+| **MCAP 二进制容器** | **完全固定** | 首尾 8B Magic `\x89MCAP0\r\n`、Record Opcode（Header `0x01` / Footer `0x02` / Schema `0x03` / Channel `0x04` / Message `0x05` / Chunk `0x06`）、尾部 Summary Section 与 CRC32 校验。 |
+| **ROS 2 消息线协议 (`ros2` profile)** | **生态固定** | `CDR_LE` 4 字节封装头（`00 01 00 00`）与 4/8 字节自然对齐规则；标准消息结构（如 `sensor_msgs/msg/CompressedImage`、`sensor_msgs/msg/JointState`、`tf2_msgs/msg/TFMessage`）及其 `ros2msg` Schema 文本。 |
+| **Topic 命名、频率与传感器组合** | **完全自定义** | 采集哪些相机/关节/传感器、Topic 叫什么名字（如 `/camera/cam_top/...`、`/leader/joint_states`）、各通道采样频率（28 Hz vs 193 Hz）、Chunk 压缩方式（`none` / `zstd` / `lz4`）。 |
+| **外部 Sidecar 文件** | **可自定义** | `metadata.yaml` 为 `rosbag2` 标准生成；而 `episode_info.json`（任务指令/设备序列号）与 `robot.urdf`（运动学模型）属于采集团队/机器人厂商自定义的业务附带文件。 |

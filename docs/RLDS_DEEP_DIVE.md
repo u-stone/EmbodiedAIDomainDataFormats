@@ -86,3 +86,14 @@ TFRecord 单条记录的精确物理帧布局（零 TensorFlow 依赖，见 [rld
     - `0x00..0x07`：`89 E0 20 00 00 00 00 00`（小端 `uint64` = `2,154,633`）
     - `0x08..0x0B`：`89 F3 DD 25`（小端 Masked CRC32C = `0x25DDF389`）
     - `0x17..`：可见明文 ASCII `steps/observation/...`，往后翻可见无损 PNG 魔数 `89 50 4E 47 0D 0A 1A 0A`。
+
+---
+
+## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+
+| 层级 | 固定 / 自定义 | 具体内容与含义 |
+| --- | --- | --- |
+| **TFRecord 二进制帧** | **完全固定** | `[uint64_le len][uint32_le masked_crc32c(len)][payload][uint32_le masked_crc32c(payload)]`，以及 `tf.train.Example` 的 Protobuf Wire 结构（`BytesList` / `FloatList` / `Int64List`）。 |
+| **TFDS 控制面文件** | **框架固定** | `dataset_info.json`（声明 `fileFormat`、`splits[].shardLengths`）与 `features.json`（声明逻辑 Tensor 维度、dtype、图像编码）。 |
+| **RLDS 顶层轨迹骨架** | **生态固定** | 每条 Record 代表 1 条完整 Episode，内部必须有 `steps/` 序列，且包含 `steps/is_first`、`steps/is_last`、`steps/is_terminal`、`steps/reward`（标准 RL 步进标记）。 |
+| **`observation` 与 `action` 子树** | **完全自定义** | 相机数量与命名（如 `berkeley_cable_routing` 自定义了 `image` / `top_image` / `wrist225_image` / `wrist45_image`）、图像编码（PNG 或 JPEG）、状态/动作字段拆分（如 `world_vector` + `rotation_delta` + `terminate_episode`）、是否预存 `natural_language_embedding`。 |

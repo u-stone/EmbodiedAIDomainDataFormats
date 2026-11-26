@@ -74,3 +74,14 @@ ver=2 lz=1 flags=0x94 typesize=4 | nbytes=17,805,312 (16.98 MB) | blocksize=262,
 - **Hex Editor / 文本对照**：
   - 文本打开 `data/real/zarr_pusht/pusht_cchi_v7_replay.zarr/data/img/.zarray` 查看 JSON 控制面；
   - Hex Editor 打开 `data/real/zarr_pusht/pusht_cchi_v7_replay.zarr/data/img/0.0.0.0`，对照前 16 字节 `02 01 94 04 00 B0 0F 01 00 00 04 00 4D AB 02 00`。
+
+---
+
+## 5. 固定规范 vs 自定义扩展（Fixed vs Custom）
+
+| 层级 | 固定 / 自定义 | 具体内容与含义 |
+| --- | --- | --- |
+| **Zarr v2 存储规范** | **完全固定** | `.zgroup` / `.zarray` / `.zattrs` JSON 元数据文件名与必填字段（`shape`、`chunks`、`dtype`、`compressor`、`order`、`zarr_format=2`）；每个 Chunk 独立成文件（如 `0.0.0.0`），以及 16 字节 Blosc 二进制头格式。 |
+| **Diffusion Policy ReplayBuffer 骨架** | **生态约定** | 顶层分为 `data/`（所有轨迹首尾拼接的扁平全局数组）和 `meta/episode_ends`（1D `int64` 累积步数边界向量）。 |
+| **数组字段名与数据类型** | **完全自定义** | `data/` 下的数组名、数量与 dtype 由任务决定（如 PushT 有 `img (float32)`、`state (float32)`、`action (float32)`、`keypoint`、`n_contacts`；其他任务可换成 `cam_0`、`qpos` 等）。 |
+| **Chunk 大小与 Blosc 压缩器** | **可自定义** | `chunks` 形状（如 `[161, 96, 96, 3]` vs `[1, 96, 96, 3]`）与压缩算法（`zstd` / `lz4`、`bitshuffle` / `byteshuffle`、`clevel`）在创建时自由指定。 |

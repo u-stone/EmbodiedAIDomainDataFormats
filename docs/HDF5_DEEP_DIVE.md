@@ -83,3 +83,14 @@ flowchart TD
   - 打开 `data/real/hdf5_robomimic/demo_v15.hdf5`：
     - `0x00..0x07`：`89 48 44 46 0D 0A 1A 0A`（`\x89HDF\r\n\x1a\n`）
     - 跳转至 `act0_offset = 20288 (0x4F40)`：直接看到 `demo_0/actions` 连续排列的原始 IEEE 754 `float64` 字节。
+
+---
+
+## 6. 固定规范 vs 自定义扩展（Fixed vs Custom）
+
+| 层级 | 固定 / 自定义 | 具体内容与含义 |
+| --- | --- | --- |
+| **HDF5 二进制格式** | **完全固定** | `\x89HDF\r\n\x1a\n` Magic、Superblock、内部 B-Tree 与 Heap 索引结构、`Group / Dataset / Attribute` 三元抽象。 |
+| **robomimic 顶层分组** | **生态约定（非 HDF5 强制）** | `/data/demo_0`、`/data/demo_1`... 按 Demo 编号分组，`/mask/train` & `/mask/valid` 存划分索引，`/data.attrs["env_args"]` 存环境 JSON。 |
+| **Demo 内部子字段与属性** | **高度自定义** | 观测/动作键名在不同项目中差异极大（robomimic 用 `actions` + `states` + `obs/agentview_image` + `controller_info/*` + `attrs["model_file"]` MuJoCo XML；而 ALOHA 直接把每条轨迹存成独立 `.hdf5`，用 `observations/qpos` + `observations/images/cam_high`）。 |
+| **Chunk 与压缩参数** | **可自定义** | 每个 Dataset 可独立选择 `contiguous`（零解压微秒切片）或 `chunks=(1, H, W, 3)` + `gzip`/`lzf` 压缩。 |
